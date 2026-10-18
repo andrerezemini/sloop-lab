@@ -16,8 +16,10 @@
                               as content://, where Chrome refuses Web MIDI)
   src/                        not touched
 
-  web/make_site.py build/felucca-X.Y.fwsc X.Y OUT_DIR [--beta]
-  (--beta: web/beta_banner.html at the top of the installer: the beta channel, docs/beta)
+  web/make_site.py build/felucca-X.Y.fwsc X.Y OUT_DIR [--beta] [--note FILE]
+  (--beta: web/beta_banner.html at the top of the installer: the beta channel, docs/beta;
+   --note FILE: sloop-lab, an HTML fragment at the top of the installer: this build's version, profile, what
+   it adds and how to go back. X.Y may be any text: the page says "SLOOP X.Y", the file name keeps [A-Za-z0-9.-])
 
 The package identity (FM-1_9xx) is read from the package; the device reports it
 after the install.
@@ -137,6 +139,8 @@ def main(pkg, version, out):
     if "--beta" in sys.argv:                       # the beta channel (docs/beta): what it is, what it implies
         notes = HERE / "beta_banner.html"
         banner = notes.read_text(encoding="utf-8") if notes.exists() else "<p><b>BETA</b></p>"
+    if "--note" in sys.argv:                       # sloop-lab: a note on this build at the top of the installer
+        banner += Path(sys.argv[sys.argv.index("--note") + 1]).read_text(encoding="utf-8")
     html = html.replace("<!--BANNER-->", banner)
     for old in list(fw.glob("felucca-*.fwsc")) + list(fw.glob("sloop-*.fwsc")):   # one package: the current one
         old.unlink()
@@ -168,7 +172,10 @@ def main(pkg, version, out):
 
 
 if __name__ == "__main__":
-    args = [a for a in sys.argv[1:] if a not in ("--studio-guide", "--beta")]
+    argv = sys.argv[1:]
+    if "--note" in argv:                           # (its file name is not a positional argument)
+        del argv[argv.index("--note"):argv.index("--note") + 2]
+    args = [a for a in argv if a not in ("--studio-guide", "--beta")]
     if len(args) != 3:
         sys.exit(__doc__)
     main(*args)

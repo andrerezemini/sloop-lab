@@ -238,8 +238,10 @@ CORES=2 CHAOS=7 build/host/cpu1_test                # env vars as separate words
 Back up with the web editor first. Install from a local copy of the site (Web MIDI needs localhost or https):
 
 ```sh
-python3 web/make_site.py build/felucca.fwsc dev ../sloop-site && cd ../sloop-site && python3 -m http.server 8000
-# Chrome or Edge: http://localhost:8000/webapp/installer/
+python3 web/make_site.py build/felucca.fwsc "2.7.1 synth b9b13df lite" ../sloop-site --note ../sloop-note.html
+cd ../sloop-site && python3 -m http.server 8000      # Chrome or Edge: http://localhost:8000/webapp/installer/
+# the label may be any text (the page says "SLOOP <label>"; the file name keeps [A-Za-z0-9.-]); --note FILE (sloop-lab) puts
+# an HTML fragment at the top of the installer: this build's version, commit, profile, what it adds, how to go back
 ```
 
 First boot checklist: ABOUT (hold HOME, SYSTEM, ABOUT) says **2 CORES** and the two supplies (2.7: "1.38V 1.60V"); the serial

@@ -36,7 +36,21 @@ static void open_family(uint32_t f) {(void)f;ui.home=1;}
 static int32_t panel_enc(uint32_t i) {int32_t s=enc[i];enc[i]=0;return s;}
 static void song_backup(void) {}
 static void song_restore(void) {}
+/* every text the SONG screen draws starts and ends inside its canvas (cv_pset clips the rest unseen), and an entry's
+ * length ("64 bars") ends before the playing square at x 226 */
+static uint32_t text_out;
+static int32_t cv_text_in(int32_t x, int32_t y, const felucca_font_t *f, const char *s, uint16_t c)
+{
+    int32_t end = x + text_w(f, s);
+    if (x < 0 || end > (int32_t)cv_w || (strstr(s, " bar") && end > 224)) {
+        printf("song UI: \"%s\" from x %d to %d, the canvas is %u wide\n", s, (int)x, (int)end, (unsigned)cv_w);
+        text_out++;
+    }
+    return cv_text(x, y, f, s, c);
+}
+#define cv_text cv_text_in
 #include "../firmware/src/ui_song.c"
+#undef cv_text
 static void press(uint32_t b) {song_screen_input(1u<<panel.btn[b],0);}
 
 int main(int argc,char **argv)
@@ -83,6 +97,11 @@ int main(int argc,char **argv)
         }
         fclose(f);
     }
-    puts("song UI: independent plan/scene save, overwrite confirmation, stopped-only changes, missing scene, bounds PASS");
+    for(i=0;i<4u;i++) arrangement.entry[i]=(arr_entry_t){(uint8_t)i,(uint8_t)(61u+i)};   /* the longest entries, one playing */
+    arrangement_clock.running=1;arrangement_clock.index=3;ui.force=1;song_screen_draw();
+    arrangement_clock.running=0;ui_message("STOP FIRST");ui.force=1;song_screen_draw();   /* the help lines under a message */
+    ui.msg_t=0;ui.force=1;song_screen_draw();
+    assert(!text_out);
+    puts("song UI: independent plan/scene save, overwrite confirmation, stopped-only changes, missing scene, bounds, every text inside PASS");
     return 0;
 }

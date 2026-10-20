@@ -55,7 +55,8 @@ UI_SMALL static void song_screen_draw(void)
             cv_rect(30, 3, 22, 20, used ? sc : TE_G1);   /* the section tile */
             b[0] = (char)('A' + e->scene); b[1] = 0;
             cv_text(37, 5, &FONT_S, b, used ? C_BLACK : sc);
-            w = e->bars * 120 / 64 + 4;                 /* its length as a bar */
+            w = e->bars * 96 / 64 + 4;                  /* its length as a bar: at most 100 px, so "64 bars" after it
+                                                         * ends at 222, before the playing square (226) */
             cv_rect(60, 9, w, 8, used ? (selected ? sc : TE_G2) : TE_G1);
             fmt_int(b, e->bars);
             str_cpy(b + str_len(b), e->bars == 1 ? " bar" : " bars", 8);

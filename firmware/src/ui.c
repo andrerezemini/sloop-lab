@@ -732,20 +732,24 @@ UI_SMALL static const char *preset_kind(uint32_t n)
     return n < nf ? "FAV" : base_kind(n - nf);
 }
 
-/* list index n into track t (2.6: MIDI Program Change, any track); 0 done, 1 no such sound */
+/* sound n into track t (2.6: MIDI Program Change, any track); 0 done, 1 no such sound. (synth) n counts the whole
+ * BANK on every build, not the offered list (bank_vis): PC n is the same sound on the lite and the full profile and
+ * on SLOOP 2.7.1, as project preset numbers are; a sound lite leaves out (PC 76, 77) loads its preset and plays its
+ * empty set, as a project naming it does. The user presets come after the BANK (2.7: the favourites are not
+ * counted); MIDI sends 0..127 only (seq.c), so SCRATCH (137), the synth sounds and the user presets are past it */
 UI_SMALL static int preset_go_to(track_t *t, uint32_t n)
 {
-    uint32_t k, total, e;
+    uint32_t k, e;
     if (is_drum(t))
         return 1;
     if (!bank_ready)
         bank_resolve();
-    total = bank_nvis + up_count();
-    if (n >= total)
+    if (n >= NBANK + up_count())
         return 1;
-    e = base_at(n, &k);                              /* (2.7: the list without the favourites: PC n as before) */
-    if (e == NENGINES)
-        return up_load_to(t, k);
+    if (n >= NBANK)
+        return up_load_to(t, up_nth(n - NBANK));
+    e = BANK[n].e;
+    k = bank_pi[n] == 0xFF ? 0u : bank_pi[n];
     if (e != t->eng_req)
         set_engine_of(t, e);
     apply_preset_to(t, k);
@@ -754,8 +758,8 @@ UI_SMALL static int preset_go_to(track_t *t, uint32_t n)
 }
 /* MIDI Program Change (2.6, after Felucca 1.5.1, PR #179 by @renebohne): seq.c queues it per track (the track its
  * channel plays, GLO > MIDI); here, in the main loop (a flash read, a sound loaded): a synth track takes the n-th sound
- * of the PRESETS list (0 the first factory sound, the user presets after the 153), the drum track kit n. A number past
- * the end does nothing (no wrap) */
+ * of the PRESETS list without the favourites (0 the first factory sound; synth: of the whole BANK, the ones lite hides
+ * included: preset_go_to; n is 0..127), the drum track kit n. A number past the end does nothing (no wrap) */
 UI_SMALL static void pc_poll(void)
 {
     uint32_t i;

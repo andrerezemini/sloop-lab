@@ -67,6 +67,11 @@ the same sound in both builds (projects and the web editor store numbers), and
 are hidden from BANK (`engines.c preset_hidden`). Older projects using those
 sets load with silent sample voices; all six retained sets are byte-identical.
 Lite does not take a hidden sound as a favourite (*FAV: NOT IN THIS BUILD*).
+MIDI Program Change counts the whole BANK on both builds (`ui.c preset_go_to`),
+so PC n is the same sound on lite, on full and on SLOOP 2.7.1. A Program Change
+carries 0..127 only: PC 76 and 77 load LOFI FLUTE and FLUTE DUST (silent on
+lite); SCRATCH (137), the 16 synth sounds (153 on) and the user presets are past
+127, and no Program Change reaches them.
 No user-sample sectors are repurposed.
 
 Validated local packages are in `build/synth-lite/`, `build/synth-lite-fpu/` and

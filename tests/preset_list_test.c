@@ -5,7 +5,11 @@
  * in every build. tests/run_tests.sh builds this twice, with the full and with the lite samples header:
  *   favourites   a hidden sound (a project or another build loaded it) is not taken as a favourite: fav_list would
  *                never show the entry, and it would hold one of the 16 places; one another build stored still goes
- *                with KNOB 4 left */
+ *                with KNOB 4 left
+ *   Program Change   PC n (MIDI's 0..127) is BANK n on every build, the numbers of SLOOP 2.7.1 and of the full
+ *                profile (LOFI FLUTE 76 and FLUTE DUST 77 keep theirs and load their silent preset, as a project naming
+ *                them does); past 127, which MIDI cannot send, preset_go_to still counts the rest of BANK, then the
+ *                user presets, then nothing */
 #define UI_PAGES_HARNESS_ONLY 1
 #include "ui_pages_test.c"
 
@@ -71,7 +75,51 @@ int main(int argc, char **argv)
         check(ok, what);
     }
     for (k = 0; k < FAV_N; k++) fav[k] = FAV_NONE;
-    printf("ui: %s\n", fails ? "FAILED" : (lite ? "lite PRESETS list: hidden sounds not taken as favourites PASS"
-                                                : "full PRESETS list: every sound a favourite PASS"));
+    go_home(); frames(2);
+    {   /* Program Change on track 3's channel as a MIDI controller sends it: the USB-MIDI packet (seq.c takes its data
+         * byte, 0..127, and queues it), loaded in the main loop (pc_poll): PC n is BANK n */
+        uint32_t n, ch = (uint32_t)song.g[G_CH1 + 2] - 1u, bad = NBANK, be = 0, bp = 0;
+        char what[100], msg[16];
+        assert(!song.g[G_ROUTE] && song.g[G_CH1 + 2] && midi_track(ch) == &trk[2]);
+        for (n = 0; n < 128u; n++) {
+            set_engine_of(&trk[2], BANK[(n + 1u) % NBANK].e);   /* (another sound first: the change is seen) */
+            apply_preset_to(&trk[2], bank_pi[(n + 1u) % NBANK]);
+            ui.msg[0] = 0;
+            midi_in_q[mi_w++ % MQ] = 0x0Cu | (0xC0u | ch) << 8 | n << 16;
+            frame();
+            snprintf(msg, sizeof msg, "T3 PROG %u", (unsigned)n);
+            if (!(trk[2].eng_req == BANK[n].e && trk[2].preset == bank_pi[n] && !strcmp(ui.msg, msg)) && bad == NBANK)
+                bad = n, be = trk[2].eng_req, bp = trk[2].preset;
+        }
+        if (bad < NBANK)
+            printf("ui: PC %u loaded engine %u preset %u, BANK %u is %s (engine %u preset %u)\n", (unsigned)bad,
+                   (unsigned)be, (unsigned)bp, (unsigned)bad, BANK[bad].name, BANK[bad].e, bank_pi[bad]);
+        snprintf(what, sizeof what, "%s: MIDI Program Change 0 .. 127 on CH %u: track 3 takes BANK n", lite ? "lite" : "full",
+                 (unsigned)ch + 1u);
+        check(bad == NBANK, what);
+    }
+    {   /* past 127, which no Program Change carries: preset_go_to's own count, the rest of BANK, the user presets after
+         * it (the slot up_nth gives), then nothing */
+        uint32_t n, bad = NBANK;
+        char what[100];
+        int ok = 1;
+        for (n = 128u; n < NBANK; n++)
+            if ((preset_go_to(&trk[2], n) || trk[2].eng_req != BANK[n].e || trk[2].preset != bank_pi[n]) && bad == NBANK)
+                bad = n;
+        if (bad < NBANK)
+            printf("ui: preset_go_to %u did not load BANK %u (%s)\n", (unsigned)bad, (unsigned)bad, BANK[bad].name);
+        ok &= bad == NBANK;
+        for (n = 0; n < up_count(); n++) {
+            up_load_k = ~0u;
+            ok &= preset_go_to(&trk[2], NBANK + n) == 0 && up_load_k == up_nth(n);
+        }
+        up_load_k = ~0u;
+        ok &= preset_go_to(&trk[2], NBANK + up_count()) == 1 && up_load_k == ~0u;   /* past */
+        snprintf(what, sizeof what, "%s: preset_go_to 128 .. %u = BANK n, then user preset n - %u, then nothing",
+                 lite ? "lite" : "full", (unsigned)NBANK - 1u, (unsigned)NBANK);
+        check(ok, what);
+    }
+    printf("ui: %s\n", fails ? "FAILED" : (lite ? "lite PRESETS list: hidden sounds not favourites, Program Change = BANK PASS"
+                                                : "full PRESETS list: every sound a favourite, Program Change = BANK PASS"));
     return fails;
 }

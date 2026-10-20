@@ -95,9 +95,9 @@ $CC -O2 -w -Ibuild/gen -Ifirmware/src -Ifirmware/hal -o "$OUT/ui_pages_test" tes
 run "live UI: pages, layers (punch, steps, erase, roll, key, mix), holds, drums, REC, fuzz" "$OUT/ui_pages_test" "$OUT"
 # (synth) the PRESETS list of each sample profile (engines.c preset_hidden: lite does not offer three sounds)
 $CC -O2 -w -Ibuild/gen -Ifirmware/src -Ifirmware/hal -o "$OUT/preset_list_full" tests/preset_list_test.c -lm
-run "PRESETS list, full samples: every sound can be a favourite" "$OUT/preset_list_full" "$OUT"
+run "PRESETS list, full samples: every sound can be a favourite; Program Change n = BANK n" "$OUT/preset_list_full" "$OUT"
 ${CC_BIN:-cc} -O2 -w -I"$LITE_GEN" -Ibuild/gen -Ifirmware/src -Ifirmware/hal -o "$OUT/preset_list_lite" tests/preset_list_test.c -lm
-run "PRESETS list, lite samples: a sound it leaves out is not taken as a favourite" "$OUT/preset_list_lite" "$OUT"
+run "PRESETS list, lite samples: a sound it leaves out is no favourite; Program Change n = BANK n" "$OUT/preset_list_lite" "$OUT"
 # no divide by 0 (the FM-1 runs with the div0 trap off, hal/fm1_irq.h: a real one would give a wrong value
 # silently): the UI fuzz, the sequencer, the projects and a minute of random live use, with UBSan
 UBSAN="${CC_UB:-cc} -O1 -w -fsanitize=integer-divide-by-zero -fno-sanitize-recover=integer-divide-by-zero -I$HOST_SAMPLE_GEN -Ibuild/gen -Ifirmware/src -Ifirmware/hal"

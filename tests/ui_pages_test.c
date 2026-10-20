@@ -68,7 +68,8 @@ static void section_store(uint32_t s) { sec_stores++; live_sec = (int8_t)s; }
 static void section_load(uint32_t s) { sec_loads++; live_sec = (int8_t)s; }
 static int up_used(uint32_t k) { return k < 2; }
 static int up_load(uint32_t k) { (void)k; return 0; }
-static int up_load_to(track_t *t, uint32_t k) { (void)t; (void)k; return 0; }
+static uint32_t up_load_k = ~0u;                     /* (tests/preset_list_test.c: the slot up_load_to was given) */
+static int up_load_to(track_t *t, uint32_t k) { (void)t; up_load_k = k; return 0; }
 static uint32_t up_count(void) { return 2; }
 static uint32_t up_nth(uint32_t n) { return n; }
 static uint32_t up_rank(uint32_t s) { return s; }

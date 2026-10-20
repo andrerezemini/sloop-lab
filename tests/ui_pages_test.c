@@ -90,6 +90,7 @@ static int st_read(uint32_t off, void *dst, uint32_t n) { (void)off, (void)dst, 
 static int st_erase(uint32_t off) { (void)off; return -1; }
 static int st_prog(uint32_t off, const void *src, uint32_t n) { (void)off, (void)src, (void)n; return -1; }
 #include "../firmware/src/storage.c"
+#ifndef UI_PAGES_EDITOR                             /* (tests/editor_test.c: editor.c brings its own) */
 /* (2.7) the editor's LIVE page (firmware/src/editor_live.c): its reply captured here */
 static uint8_t lv_out[96];
 static uint32_t lv_n;
@@ -108,6 +109,7 @@ static void live5(uint32_t op, uint32_t x, uint32_t y, uint32_t z, uint32_t w)
     lv_n = 0;
     ed_live(a, 5);
 }
+#endif
 static const char *outdir;
 static void ppm(const char *name) {
     char path[512]; snprintf(path,sizeof path,"%s/%s.ppm",outdir,name);

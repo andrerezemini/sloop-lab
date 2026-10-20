@@ -76,7 +76,8 @@ UI_SMALL static int32_t ed_rv(const uint8_t *p) { return (int32_t)(p[0] | p[1] <
 /* ---- user sample slots (eng_sample.c): flash SMP_USER_OFF(k) (USR1..3 at 0xA0000.., USR4 at 0xE7000) ----
  * BEGIN erases the header sector (the slot is invalid from then on), WRITE fills the data
  * (offset >= 512, erasing each further sector when the write reaches its start), END sends
- * the header: the device checks the data CRC and writes the header last. */
+ * the header: the device checks the data CRC and writes the header last. (2.7.1 fix) None of them while the song
+ * plays (ed_flash_busy, as every other flash write: a sector erase silences the audio ~50 ms, a full slot is 20): rc 3. */
 UI_SMALL static uint32_t ed_unpack7(const uint8_t *a, uint32_t na, uint8_t *out, uint32_t max)
 {
     uint32_t n = 0;                                 /* groups: msb byte, then up to 7 bytes */
@@ -103,6 +104,8 @@ UI_SMALL static void ed_pack7(const uint8_t *p, uint32_t n)      /* pack7: a top
 }
 static uint8_t ed_smp_buf[512] __attribute__((aligned(4)));
 static uint8_t ed_smp_open[SMP_USER_SLOTS];        /* SMP_BEGIN done, END not yet: WRITE / END may act */
+/* a flash erase silences the audio for ~50 ms and stalls USB: only while stopped (as the panel) */
+UI_SMALL static uint32_t ed_flash_busy(void) { return song.playing || transport_req; }
 UI_SMALL static uint32_t ed_smp_slot(uint32_t k) { return SMP_USER_OFF(k); }
 UI_SMALL static void ed_smp_inval(uint32_t k)
 {
@@ -110,7 +113,7 @@ UI_SMALL static void ed_smp_inval(uint32_t k)
     fl_inval(ed_smp_slot(k), SMP_USER_SIZE);
     fm1_irq_on();
 }
-UI_SMALL static int ed_smp_erase(uint32_t k, uint32_t all)  /* header sector, or the whole slot */
+UI_SMALL static int ed_smp_erase(uint32_t k, uint32_t all)  /* header sector, or the whole slot: rc 0, 1 flash, 3 */
 {
     uint32_t i, took;
     int rc = 0;
@@ -118,7 +121,10 @@ UI_SMALL static int ed_smp_erase(uint32_t k, uint32_t all)  /* header sector, or
     for (i = 0; i < 16u; i++)
         usr_zone[k][i].n = 0;                     /* a sounding voice ends instead of reading 0xFF */
     for (i = 0; i < (all ? SMP_USER_SIZE / 0x1000u : 1u) && !rc; i++) {
-        rc = fl_erase4k_quiet(ed_smp_slot(k) + i * 0x1000u, &took);
+        if (i && ed_flash_busy())                 /* (2.7.1 fix) the song started between two erases (a MIDI START): */
+            rc = 3;                               /* stop: the header went first, the slot is already empty */
+        else
+            rc = fl_erase4k_quiet(ed_smp_slot(k) + i * 0x1000u, &took) ? 1 : 0;
         fm1_wdt_feed();
     }
     ed_smp_inval(k);
@@ -469,9 +475,6 @@ UI_SMALL static const uint8_t *ed_bk_obj(uint32_t id, uint32_t *len)   /* 0 = no
 static const uint8_t ED_BK_IDS[] = {0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 32, 33, 34, 35};   /* 11: your theme (2.7) */   /* 35: USR4 (2.4), 9: SYN kits (2.5),
                                                                                       * 10: MIDI LEARN (2.6) */
 
-/* a flash erase silences the audio for ~50 ms and stalls USB: only while stopped (as the panel) */
-UI_SMALL static uint32_t ed_flash_busy(void) { return song.playing || transport_req; }
-
 UI_SMALL static uint32_t ed_bk_commit(void)
 {
     uint8_t *raw = ED_BK_RAW;
@@ -807,7 +810,7 @@ UI_SMALL static void ed_handle(const uint8_t *f, uint32_t n)   /* f: the bytes b
         uint32_t rc;
         if (na < 1u || a[0] >= SMP_USER_SLOTS || !flash_ok)
             return;
-        rc = ed_smp_erase(a[0], cmd == ED_SMP_ERASE) ? 1u : 0u;
+        rc = ed_flash_busy() ? 3u : (uint32_t)ed_smp_erase(a[0], cmd == ED_SMP_ERASE);
         ed_smp_open[a[0]] = (uint8_t)(cmd == ED_SMP_BEGIN && !rc);
         ed_b(a[0]);
         ed_b(rc);
@@ -823,6 +826,8 @@ UI_SMALL static void ed_handle(const uint8_t *f, uint32_t n)   /* f: the bytes b
             rc = 1;
         else if (usr_nz[a[0]] || !ed_smp_open[a[0]])
             rc = 4;                                        /* slot in use: SMP_BEGIN first (voices read it) */
+        else if (ed_flash_busy())
+            rc = 3;                                        /* PLAY during an upload: nothing written (2.7.1 fix) */
         else {
             if (!(off & 0xFFFu))                           /* first write into a sector: erase it */
                 rc = fl_erase4k_quiet(ed_smp_slot(a[0]) + off, &took) ? 2u : 0u;
@@ -840,7 +845,7 @@ UI_SMALL static void ed_handle(const uint8_t *f, uint32_t n)   /* f: the bytes b
         if (na < 2u || a[0] >= SMP_USER_SLOTS || !flash_ok)
             return;
         ed_b(a[0]);
-        ed_b((uint32_t)ed_smp_end(a[0], a + 1, na - 1u));
+        ed_b(ed_flash_busy() ? 3u : (uint32_t)ed_smp_end(a[0], a + 1, na - 1u));
         break;
     case ED_SMP_INFO:                                      /* -> per slot: zones (0 = empty), name, data KiB */
         ed_b(SMP_USER_SLOTS);

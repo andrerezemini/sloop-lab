@@ -1024,7 +1024,7 @@ A good setup: USR1 and USR2 as instruments, a big kit on USR3+4. You fill the sl
 2. **Make the sound**, one of two ways:
    - **From files (one note per file):** drop up to 16 WAV files (any rate, mono or stereo). Each plays at its own note, the keys between play the nearest one, pitched. The note is read from the file name (`KEYS_C4.wav`, C4 = 60) or set in the list; a keyboard picture shows which keys play which file; ▶ plays a file; the meter shows the time used. Each file has a **Gain** (0 to −24 dB, 2.6); **Match levels** sets them so every file is heard at the same level (the loud ones turned down: every file comes in at full scale), then adjust by ear. **Loop** (2.7), for each file: **ONE SHOT** (plays once to the end, as before), **LOOP** (the whole file again and again while the key is held; let go, it ends its round) or **LOOP+TAIL** (the start plays, then the part between **Loop start** and **Loop end** again and again while the key is held; let go, the rest of the file, the tail, plays to the end). A short sample becomes a sound you can hold: a pad, a string, a voice, an organ. Set the points on the file's wave (the loop is lit); when you let go of a slider the point moves to the nearest zero crossing, so the loop does not click. Hold ▶ to hear it as the FM-1 plays it, let go for the tail. A WAV that has its own loop (set in a sample editor: its *smpl* chunk) comes in as LOOP+TAIL with its points. It takes no extra memory. The SAMPLE engine's **LOOP** (EDIT 1, KNOB 4) still turns loops off for the whole set. The release (ENV) still ends the note: set REL long enough to hear the tail. On SLOOP 2.6 such a file loops until the release ends it.
    - **Chop a recording** (CHOP): open or drop a recording (WAV, MP3, AIFF…) and cut it into up to 16 chops, one per key.
-3. **Send it and play it:** name it, **Send to USRn**, then **Play this slot on track 1, 2 or 3**: that track switches to SAMPLE with SET = USRn.
+3. **Send it and play it:** name it, **Send to USRn** (stop the song first), then **Play this slot on track 1, 2 or 3**: that track switches to SAMPLE with SET = USRn.
 
 **CHOP** in detail:
 
@@ -1046,7 +1046,7 @@ A recording of any length works: keep the chops you want, the slot takes about 7
 
 1. **Your sounds.** Drop a WAV on any of the **16 pads** (KICK, KICK 2, SNARE, CLAP, HAT, OPEN HAT, PEDAL, RIM, SNARE 2, LOW TOM, HI TOM, CRASH, RIDE, SHAKER, CONGA, COWBELL), or **Choose files** to add several at once: they are sorted onto the pads by name (*kick*, *bd*, *snare*, *hh*, *open*, *crash*…; a second kick goes to KICK 2). Click a pad's wave to hear it. Each pad has **Pitch** (±12 semitones), **Gain** and **Length** (a cut ends with a short fade). **Match levels** (2.6, under the pads) sets every pad's Gain so the kit is heard even (as the ear hears it: the lows count less; the loud pads turned down to the quietest), then adjust by ear.
 2. **Where it goes.** **USR3+4** (the big kit, about 15 s; the editor shares the sounds out over the two slots by itself), or a single slot **USR1–USR4** (about 7.4 s). Each choice shows what it holds now and what a send would replace. The meter shows the time used; too long? shorten the long sounds or press **Fit the slot**.
-3. **Send it.** Name it, **Send**, then **Use … on the drum track** selects track 4 and sets its KIT (or turn PRESETS on the drum track: USR3+4 is the last kit).
+3. **Send it.** Name it, **Send** (stop the song first), then **Use … on the drum track** selects track 4 and sets its KIT (or turn PRESETS on the drum track: USR3+4 is the last kit).
 
 **Save as ZIP** keeps the kit's 16 WAVs to share; **Open ZIP** (or dropping a .zip) loads one back.
 
@@ -1187,7 +1187,7 @@ Every change goes to the FM-1 at once, and the grid shows the same steps.
 
 **Import MIDI** reads a MIDI file into the selected track, at its DIV. First a preview: the file's track to take, how many notes and steps, and what changes on the way: notes off the grid moved to the nearest step, more than 4 notes on a step (the loudest kept), a note cut short by the next one, notes past step 64. **Import** replaces the track's pattern (and, ticked, sets its length); **Cancel** leaves it as it was. On the drum track, the GM notes go to the lanes (36 kick, 38 snare, 42 hat…) and the velocity to the levels, ghost to hard.
 
-The editor writes presets, the FM6 bank and backups to flash only while the song is stopped, as the FM-1 does (it asks you to stop first). Try it without hardware: add `?mock=1` to the editor's address. The protocol is documented in [web/EDITOR_PROTOCOL.md](web/EDITOR_PROTOCOL.md).
+The editor writes presets, the FM6 bank, samples and backups to flash only while the song is stopped, as the FM-1 does (it asks you to stop first). Try it without hardware: add `?mock=1` to the editor's address. The protocol is documented in [web/EDITOR_PROTOCOL.md](web/EDITOR_PROTOCOL.md).
 
 ---
 

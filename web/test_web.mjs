@@ -91,6 +91,35 @@ async function editorMock() {
   rc = rc || E.parse[E.CMD.SMP_END](await rq(E.req.smpEnd(1, hdr), { timeout: 2000, retries: 0 })).rc;
   const si = E.parse[E.CMD.SMP_INFO](await rq(E.req.smpInfo()));
   ok(rc === 0 && si.slots[1].zones === 1 && si.slots[1].name === "TEST", "editor: sample upload (CRC checked by the mock)");
+  {   /* (2.7.1 fix) while the song plays the sample commands write nothing and answer rc 3 (editor.c ed_flash_busy, as
+         every flash write): an upload is refused at SMP_BEGIN, or at the first SMP_WRITE after PLAY; SMP_INFO still
+         answers; the pages say "stop the song first" for a 3 from any of them (smpUpload, smpErase, the DRUM KIT's
+         erase), and keep the detail for SMP_WRITE / SMP_END, whose 3 may also be the flash or the data CRC */
+    const C = E.CMD, o1 = { timeout: 1000, retries: 0 };
+    const rcOf = async (cmd, r, o = o1) => E.parse[cmd](await rq(r, o)).rc;
+    m.sim.play(true);
+    const b3 = await rcOf(C.SMP_BEGIN, E.req.smpBegin(1)), e3 = await rcOf(C.SMP_ERASE, E.req.smpErase(1), { timeout: 2500, retries: 0 });
+    const kept = E.parse[C.SMP_INFO](await rq(E.req.smpInfo()));
+    ok(b3 === 3 && e3 === 3 && kept.slots[1].zones === 1 && kept.slots[1].name === "TEST",
+      "editor: playing: SMP_BEGIN / SMP_ERASE rc 3, the slot as it was, SMP_INFO answers");
+    m.sim.play(false);
+    const b0 = await rcOf(C.SMP_BEGIN, E.req.smpBegin(1)), w0 = await rcOf(C.SMP_WRITE, E.req.smpWrite(1, E.SMP.DATA_OFF, data.subarray(0, 256)));
+    m.sim.play(true);
+    const w3 = await rcOf(C.SMP_WRITE, E.req.smpWrite(1, E.SMP.DATA_OFF + 256, data.subarray(256, 512)));
+    const n3 = await rcOf(C.SMP_END, E.req.smpEnd(1, hdr), { timeout: 2000, retries: 0 });
+    const mid = E.parse[C.SMP_INFO](await rq(E.req.smpInfo()));
+    m.sim.play(false);
+    ok(b0 === 0 && w0 === 0 && w3 === 3 && n3 === 3 && mid.slots[1].zones === 0,
+      "editor: PLAY during an upload: SMP_WRITE / SMP_END rc 3 (the slot stays empty from SMP_BEGIN)");
+    let again = await rcOf(C.SMP_BEGIN, E.req.smpBegin(1));
+    for (let off = 0; off < data.length && !again; off += 256) again = await rcOf(C.SMP_WRITE, E.req.smpWrite(1, E.SMP.DATA_OFF + off, data.subarray(off, off + 256)));
+    again = again || await rcOf(C.SMP_END, E.req.smpEnd(1, hdr), { timeout: 2000, retries: 0 });
+    const back = E.parse[C.SMP_INFO](await rq(E.req.smpInfo()));
+    ok(again === 0 && back.slots[1].zones === 1 && back.slots[1].name === "TEST", "editor: stopped, the upload sent again goes in");
+    ok((html.match(/\.rc === 3 \? t\("smpStop"\)/g) || []).length === 3 && /smpStop: "/.test(html)
+      && (html.match(/\.rc === 3 \? `\$\{t\("smpStop"\)\} \((write at 0x\$\{a\.toString\(16\)\}|end) rc 3: or a /g) || []).length === 2,
+      "editor: Samples / CHOP / DRUM KIT: a 3 says stop the song first (WRITE / END: with the rc 3 detail)");
+  }
   /* 2.7: a file's loop (Samples page): LOOP+TAIL's points on rising zero crossings, the zone looped = 2 (held), the
      decoder's state at the loop start; LOOP the whole file; ONE SHOT as before */
   {
@@ -602,7 +631,7 @@ async function editorV9() {
 /* ------------------------------------- editor v6: backup / restore --- */
 async function editorBackup() {
   const C = E.CMD;
-  const { rq, done } = attachMock({});
+  const { m, rq, done } = attachMock({});
   const info = E.parse[C.INFO](await rq(E.req.info()));
   ok(info.proto >= 6, "backup: INFO protocol v6 or later");
   const ec = readFileSync(join(HERE, "../firmware/src/editor.c"), "utf8");
@@ -626,6 +655,24 @@ async function editorBackup() {
   await E.backupRestore(rq, JSON.parse(JSON.stringify(A)));   /* as written to disk and read back */
   const B = await E.backupCapture(rq, info);
   ok(js(B.objects) === js(A.objects), "backup: restore -> the same bytes again (presets, projects, samples, settings)");
+  for (const at of [C.SMP_ERASE, C.SMP_WRITE, C.SMP_END]) {   /* (2.7.1 fix) PLAY pressed as the restore reaches the samples */
+    let playing = false, after = 0, code = "", more = null;
+    const rqp = (r, o) => {
+      if (r[0] >= C.SMP_BEGIN && r[0] <= C.SMP_ERASE) {
+        if (r[0] === at && !playing) { m.sim.play(true); playing = true; }
+        if (playing) after++;
+      }
+      return rq(r, o);
+    };
+    try { await E.backupRestore(rqp, JSON.parse(JSON.stringify(A))); } catch (e) { code = e.code; more = e.more; }
+    m.sim.play(false);
+    const name = at === C.SMP_ERASE ? "SMP_ERASE" : at === C.SMP_WRITE ? "SMP_WRITE" : "SMP_END";
+    ok(code === "bkStop" && after === 1 && (at === C.SMP_ERASE ? more === "" : / (write|end) rc 3: or a /.test(more)),
+      `backup: PLAY at the first ${name}: refused (rc 3), the restore stops there with "stop the FM-1"${at === C.SMP_ERASE ? "" : " (+ rc 3 detail)"}`);
+  }
+  ok(/sayK\(e\.code, e\.code === "bkStop" \? e\.more \|\| "" : e\.message\)/.test(html), "backup: the restore's message shows that detail");
+  await E.backupRestore(rq, JSON.parse(JSON.stringify(A)));
+  ok(js((await E.backupCapture(rq, info)).objects) === js(A.objects), "backup: stopped again, the restore goes through");
   const bad = JSON.parse(JSON.stringify(A));
   bad.objects[2].data = E.b64enc(E.b64dec(bad.objects[2].data).map((x, i) => i === 3 ? x ^ 1 : x));
   let caught = "";

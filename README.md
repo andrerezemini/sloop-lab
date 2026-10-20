@@ -249,7 +249,7 @@ Every button can glow so its label is readable on a black FM-1; the C keys or ev
 
 ### Memory and safety
 
-- **Autosave:** stop and leave it 2.5 s, your work is kept; at power-on SLOOP comes back exactly as you left it.
+- **Autosave:** stop and leave it 2.5 s, your work is kept; at power-on SLOOP comes back exactly as you left it. Under a chord held by KBD HOLD or the arp's HOLD: after 2 minutes with nobody playing, with a short gap in the sound.
 - **1 song of 4 sections (A–D)** (more songs as backup files), **32 user presets**, **27 FM6 patches**, **undo / redo**.
 - **Full backup and restore** from the web editor (2.3).
 - **Safe updates:** the installer checks the package (SHA-256) before writing it, the update loader checks it again (CRC) before starting it; an interrupted install finishes when you press Install again; **USB rescue** (OCT− at power-on).

@@ -674,7 +674,7 @@ UI_SMALL static void project_load(uint32_t slot)
 #define AUTOSAVE_IDLE 2500u                    /* ms without input */
 #define AUTOSAVE_GAP 20000u                    /* ms between two saves at least */
 static project_t autosave_buf __attribute__((section(".pool")));
-static uint32_t autosave_hash, autosave_ms, autosave_checked;
+static uint32_t autosave_hash, autosave_ms, autosave_checked, autosave_late;
 
 UI_SMALL static int audio_quiet(void)
 {
@@ -689,21 +689,62 @@ UI_SMALL static int audio_quiet(void)
     return 1;
 }
 
-UI_SMALL static void autosave_tick(void)                /* main loop */
+/* (2.7.1 fix) may a deferred write (the autosave, the live sections, the settings) go ahead now? When nothing sounds,
+ * as before. But a chord held by KBD HOLD or the arp's HOLD sounds until it is let go, and nothing reached the flash:
+ * the FM-1's power switch cuts the supply without the firmware knowing (no power-off to save in), so switching off lost
+ * the work. So once a write has waited WRITE_LATE (2 min) over the voices and nobody has played for WRITE_HANDS (10 s:
+ * no key, button or knob, no MIDI note, CC or pedal, no editor request, the transport stopped, no recording armed, no
+ * menu open, no computer recording the USB audio; a MIDI clock alone is not playing), everything that waits is written
+ * at once (persist_flush_now): one gap in the sound, ~50 ms for each object written (the working project, a live
+ * section, the settings: a 4 KB sector erase each). *since: when the write began to wait (0: not yet; fm1_ms | 1, as
+ * ly_quiet_t). 0: not now, or written here (the caller has nothing left to write) */
+#define WRITE_LATE 120000u
+#define WRITE_HANDS 10000u
+static uint32_t write_busy, sections_late;              /* somebody playing, last seen (autosave_tick, every pass);
+                                                         * when the sections began to wait (sections_flush) */
+static void persist_flush_now(void);
+UI_SMALL static int write_ok(uint32_t *since)
+{
+    if (!*since)
+        *since = fm1_ms | 1u;
+    if (audio_quiet())
+        return 1;
+    if (fm1_ms - (*since & ~1u) < WRITE_LATE || fm1_ms - write_busy < WRITE_HANDS || fm1_ms - ui_input_ms < WRITE_HANDS ||
+        fm1_ms - midi_in_ms < WRITE_HANDS)
+        return 0;
+    persist_flush_now();                                /* (all of it in one go: not a second gap seconds later) */
+    autosave_late = sections_late = 0;
+    return 0;
+}
+
+UI_SMALL static void autosave_tick(void)                /* main loop, every pass */
 {
 #if FELUCCA_FLASH
-    uint32_t h, now = fm1_ms;
+    uint32_t h, now = fm1_ms, i, busy = fm1_in.notes | fm1_in.buttons | song.playing | transport_req | rec_wait | ft_on |
+                                       ui.menu;                 /* (buttons: REMOTE's over MIDI too) */
+    for (i = 0; i < NTRK; i++)
+        busy |= sus_on[i];                              /* (a MIDI sustain pedal down) */
+#if FELUCCA_UAC
+    busy |= uac.feed;                                   /* (a computer recording the USB audio) */
+#endif
+    if (busy)
+        write_busy = now;                               /* (2.7.1: somebody plays: no write over the voices, write_ok) */
     if (!flash_ok || song.playing || transport_req || rec_wait || ft_on || ui.menu ||
         now - ui_input_ms < AUTOSAVE_IDLE || now - autosave_ms < AUTOSAVE_GAP || now - autosave_checked < 1000u)
         return;
     autosave_checked = now;
     proj_capture(&autosave_buf);
     h = autosave_buf.sum;
-    if (h == autosave_hash || !audio_quiet())
+    if (h == autosave_hash) {
+        autosave_late = 0;                              /* (nothing waits) */
+        return;
+    }
+    if (!write_ok(&autosave_late))                      /* (2.7.1: a held chord no longer blocks it for good) */
         return;
     if (st_save(OBJ_AUTOSAVE, &autosave_buf, sizeof autosave_buf) == 0)
         autosave_hash = h;
     autosave_ms = fm1_ms;
+    autosave_late = 0;
 #endif
 }
 
@@ -1174,10 +1215,15 @@ UI_SMALL static void sections_flush(void)                        /* main loop */
         settings_later = 0;
         song_dirty = 1;                                 /* (settings_save when quiet, with the song) */
     }
-    if ((!sec_dirty && !song_dirty) || song.playing || transport_req || !audio_quiet() || fm1_ms - ui_input_ms < 1500u ||
-        fm1_ms - tried < 5000u)
+    if (!sec_dirty && !song_dirty) {
+        sections_late = 0;                              /* (nothing waits) */
+        return;
+    }
+    if (song.playing || transport_req || fm1_ms - ui_input_ms < 1500u || fm1_ms - tried < 5000u ||
+        !write_ok(&sections_late))                      /* (2.7.1: a held chord no longer blocks it for good) */
         return;
     tried = fm1_ms;                                     /* (a failed write: again in 5 s, not every frame) */
+    sections_late = 0;
     sections_write();
     if (sec_dirty)
         ui_message("SAVE ERROR: RETRYING");

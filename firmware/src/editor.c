@@ -1196,6 +1196,7 @@ UI_SMALL static void ed_service(void)
     if (!ota_frame_get(&p, &n) || n < 4u || p[0] != ED_HDR0 || p[1] != ED_HDR1 || p[2] != ED_HDR2)
         return;
     ed_w.last_ms = fm1_ms;                                 /* any request keeps WATCH alive */
+    midi_in_ms = fm1_ms;                                   /* (2.7.1: and counts as playing: project.c write_ok) */
     if (p[3] >= ED_SMP_BEGIN) {                            /* large frames: handled in place, then freed */
         ed_handle(p, n);
         ota_frame_done();

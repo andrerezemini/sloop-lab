@@ -53,6 +53,9 @@ static uint8_t pen_lane;                       /* the last drum lane played: the
  * down together are a chord). step_in_q: every synth note-on / note-off from MIDI, note | on << 7 | track << 8, for the
  * STEP page's entry (ui_input.c midi_entry): the audio side writes, the UI reads; a full queue drops and says so */
 static uint32_t mi_pen[4];
+static volatile uint32_t midi_in_ms;           /* (2.7.1) fm1_ms of the last MIDI message played in (a note, a CC, a
+                                                * pedal, Program Change; not the clock) or editor request (editor.c):
+                                                * somebody plays, no flash write over the voices (project.c write_ok) */
 #define STEP_IN_Q 32u
 static volatile uint16_t step_in_q[STEP_IN_Q];
 static volatile uint32_t step_in_w;
@@ -3006,6 +3009,7 @@ static void events_block(uint32_t n)
             mclk_event((pkt >> 8) & 0xFFu, ((pkt >> 4) & 15u) ? 2u : 1u);
             continue;
         }
+        midi_in_ms = fm1_ms;                          /* (2.7.1: somebody plays) */
         if (song.g[G_RMCH] && ch == (uint32_t)song.g[G_RMCH] - 1u && st == 0xB0u && d1 >= REMOTE_CC0 &&
             d1 < REMOTE_CC0 + 14u) {                  /* 2.7: REMOTE (GLO > MIDI 3): the buttons over MIDI */
             remote_cc(d1 - REMOTE_CC0, d2, pkt & 0xF0u);

@@ -27,6 +27,7 @@
 #ifndef UI_SMALL                 /* (2.7) compiled for size: not the audio path (gfx.c UI_SMALL); the host tests: nothing */
 #define UI_SMALL
 #endif
+#include "cold.h"                 /* (synth) FELUCCA_COLD_FN: proj_apply (FELUCCA_COLD=0 builds it as before) */
 #define PROJ_MAGIC_V6 0x46554E36u              /* "FUN6": format 5 + the 2.6 parameters, nudge and condition in a byte (SLOOP 2.6 and 2.7 write it; read) */
 #define PROJ_MAGIC 0x46554E37u                 /* "FUN7": signed common parameters, reverb type and section FX mask (synth) */
 #define PROJ_MAGIC_V5 0x46554E35u              /* "FUN5": format 4 + per-step nudge, parameter locks, fill conditions (SLOOP 2.4) */
@@ -656,7 +657,6 @@ static void FELUCCA_COLD_FN proj_apply(const project_t *p, int all)
 
 #ifndef PROJ_HOST
 #if FELUCCA_ARRANGER
-#include "cold.h"
 #include "arranger_scene.c"
 #endif
 static uint8_t sec_dirty, song_dirty;           /* live sections / the song: in RAM, not yet in flash */

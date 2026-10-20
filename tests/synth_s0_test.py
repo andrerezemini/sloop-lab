@@ -67,3 +67,22 @@ with tempfile.TemporaryDirectory(prefix="sloop-s0-") as td:
     subprocess.run(['cc', '-std=c11', '-fsanitize=address,undefined', str(tmp / 'test.c'), '-o', str(tmp / 'test')], check=True)
     subprocess.run([str(tmp / 'test')], check=True)
     print(f'S0: full/lite stable IDs, 54284 B saved, {len(cases)} asset blocks exact, truncated blocks rejected (ASan/UBSan)')
+
+# the cold entry points (cold.h FELUCCA_COLD_FN): a file that uses the macro includes cold.h itself, above its first
+# use, and does not lean on another file of the unity build (felucca.c) or of a host test having included it first:
+# project.c used it on proj_apply 70 lines before its own include, which only arranger builds reached, and compiled
+# only because ui_input.c (firmware) and usb.c (tests/project_test.c) include cold.h without using it
+users = 0
+for src in sorted((ROOT / "firmware").rglob("*.[ch]")):
+    if src.name == "cold.h":
+        continue
+    code = re.sub(r"/\*.*?\*/", lambda m: "\n" * m[0].count("\n"), src.read_text(errors="replace"), flags=re.S)
+    lines = [l.split("//")[0] for l in code.splitlines()]          # (comments out, line numbers kept)
+    use = next((i for i, l in enumerate(lines) if "FELUCCA_COLD_FN" in l and not l.lstrip().startswith("#")), None)
+    if use is None:
+        continue
+    users += 1
+    inc = next((i for i, l in enumerate(lines) if re.match(r'\s*#\s*include\s+"cold\.h"', l)), None)
+    assert inc is not None and inc < use, \
+        f"{src.relative_to(ROOT)}:{use + 1}: FELUCCA_COLD_FN before #include \"cold.h\" (line {inc + 1 if inc is not None else 'none'})"
+print(f"S0: the cold entry points: {users} files use FELUCCA_COLD_FN, each includes cold.h above its first use")

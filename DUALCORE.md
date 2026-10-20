@@ -107,6 +107,13 @@ heaviest patterns). With 2 CORES the last synth part and the drums render on cor
 SLOOP 2.6's. MENU > SYSTEM > 2ND CORE switches the split off and on while playing: `cpu_pct` (the console, or
 INFO on the SYSTEM page) should drop with it on, by roughly the drums' and one part's share.
 
+`cpu_pct` is the render alone. After 2.7.1 the console also prints `t5_pct`, the 10 kHz TIMER5 tick's share of
+core 0 over the last second (the panel scan, the USB and MIDI polls and the USB audio stream, in the render or
+not), so `cpu_pct + t5_pct` is core 0's time in interrupts; slightly under it, as both truncate and each tick's
+entry and exit (a few tenths of a percent) are not counted. The console's own replies go through the USB poll:
+read `t5_pct` with the console otherwise idle. `ui_fps` is the main loop's frames in the last second: ~66 at most
+(15 ms each), fewer when a frame's work runs over.
+
 ## Installing a build of this branch on an FM-1
 
 The package keeps SLOOP's development identity (FM-1_900); Felucca's update path does not refuse a package

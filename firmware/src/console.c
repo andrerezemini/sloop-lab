@@ -10,6 +10,7 @@ static struct {
     char line[CON_LINE];
     uint32_t len;
     uint8_t dtr_seen, stalled;   /* stalled: the host stopped reading, drop the rest of this reply */
+    uint32_t fps, t5, fps_ms, fps_frames, t5_n;   /* (after 2.7.1) status ui_fps, t5_pct: the last second's */
 } con;
 static uint32_t lowram_state(void);                  /* main.c: the SRAM below the RAM region, proved at boot */
 static uint32_t stack_free_main(void), stack_free_sup(void), stack_sp(void);   /* main.c: core 0's stacks, painted at boot */
@@ -177,6 +178,10 @@ static void con_status(void)
     con_puts("\r\n");
     con_kv("uptime_ms", (int32_t)fm1_ms);
     con_kv("cpu_pct", (int32_t)(song.cpu_q8 * 100u / 256u));
+    con_kv("t5_pct", (int32_t)con.t5);                  /* (after 2.7.1) the 10 kHz tick (TIMER5: the scan and the
+                                                         * polls, in the render or not), which cpu_pct leaves out */
+    con_kv("ui_fps", (int32_t)con.fps);                 /* the main loop: ~66 frames/s at most (15 ms each),
+                                                         * fewer when a frame's work runs over */
 #if FELUCCA_CPU1
     con_kv("cpu1", (int32_t)cpu1_state);                 /* 1 did not start, 2 self-test failed, 3 running (cpu1.c) */
     con_kx("cpu1_trace", fm1_c1_trace);
@@ -307,6 +312,19 @@ static void con_exec(const char *p)
 
 static void cdc_task(void)                              /* main loop */
 {
+    uint32_t now = fm1_ms;
+    if (now - con.fps_ms >= 1000u) {                    /* (after 2.7.1) status ui_fps and t5_pct, once a second */
+        uint32_t ms = now - con.fps_ms, n = t5_ticks;
+        if (con.fps_ms) {                               /* ui_frames is .noinit: the first window only takes the
+                                                         * counts (both read 0 for the first second) */
+            con.fps = (felucca_dbg.ui_frames - con.fps_frames) * 1000u / ms;
+            con.t5 = (n - con.t5_n) / (ms * FM1_TICKS_PER_US * 10u);   /* TIMER5's ticks over the window's,
+                                                         * in % (truncated, as cpu_pct) */
+        }
+        con.fps_ms = now;
+        con.fps_frames = felucca_dbg.ui_frames;
+        con.t5_n = n;
+    }
     if (cdc.dtr && !con.dtr_seen) {
         con_puts("\r\nFelucca ");
         con_puts(FELUCCA_VERSION);

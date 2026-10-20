@@ -21,6 +21,11 @@ struct felucca_dbg {
 } felucca_dbg __attribute__((section(".noinit")));
 static volatile uint32_t audio_halves, audio_max_us;
 static volatile uint32_t t5_nested_ticks;              /* TIMER4 ticks TIMER5 spent nested in this ISR (main.c) */
+#if FELUCCA_CDC
+/* (after 2.7.1) the console's t5_pct (cdc_task): cpu_pct is the render without the TIMER5 ticks nested in it, and
+ * TIMER5 outside the render is in no load figure. Only with the console: the FM-1's build stays as it was */
+static volatile uint32_t t5_ticks;                     /* TIMER4 ticks of every TIMER5, nested or not (main.c) */
+#endif
 #define SCOPE_N 512u
 static int16_t scope_buf[SCOPE_N], scope_bufr[SCOPE_N];   /* left, right (the visualiser): the mix at full level */
 static uint32_t scope_w;

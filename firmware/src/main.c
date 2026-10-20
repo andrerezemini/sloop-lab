@@ -96,7 +96,13 @@ void fm1_timer5_irq(void)
         if (usb_due)
             uac_service();
 #endif
-        t5_nested_ticks += fm1_ticks() - t0;
+        {
+            uint32_t dt = fm1_ticks() - t0;
+#if FELUCCA_CDC
+            t5_ticks += dt;                     /* (after 2.7.1, console t5_pct) one read for both figures */
+#endif
+            t5_nested_ticks += dt;
+        }
         return;
     }
     if (owed & 1u)
@@ -106,6 +112,11 @@ void fm1_timer5_irq(void)
         uart_midi_poll();
 #endif
     owed = 0;
+#if FELUCCA_CDC
+    t5_ticks += fm1_ticks() - t0;               /* (after 2.7.1) a tick outside the render, in no load figure before.
+                                                 * Both adds count the body: the entry and exit (isr_timer5, this
+                                                 * function's push and pop), a few tenths of a percent, are left out */
+#endif
 }
 extern void isr_timer5(void);
 

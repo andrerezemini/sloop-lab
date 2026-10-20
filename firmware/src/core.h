@@ -242,7 +242,7 @@ typedef struct track {
     uint32_t arp_pos;            /* stopped: units into the current arp step */
     uint32_t arp_abs;            /* playing: the arp step of the transport grid last played */
     uint32_t arp_idx;
-    uint8_t arp_note;            /* sounding arp note + 1, 0 = none (2.7.1: + 1, so a note 0 ends too) */
+    uint8_t arp_note;            /* sounding arp note + 1, 0 = none (after 2.7.1: + 1, so a note 0 ends too) */
     uint8_t arp_new;             /* a chord just started: its first note now */
     uint8_t arp_ch[3];           /* (2.7) MODE CHORD: the other notes sounding with arp_note, + 1 as it, 0 = none */
     uint8_t arp_walk;            /* (2.7) MODE WALK: the place in the note list it stands on */

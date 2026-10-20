@@ -258,7 +258,7 @@ static int test_usb_ep1(void)
     }
     mi_r = mi_w;
     w0 = mi_w;
-    {   /* (2.7.1 fix) a channel message on another cable is queued as cable 0: cable 1 is the TRS jack's (seq.c remote_cc) */
+    {   /* (after 2.7.1) a channel message on another cable is queued as cable 0: cable 1 is the TRS jack's (seq.c remote_cc) */
         static const uint8_t m[] = {0x19, 0x90, 61, 100, 0x5B, 0xB0, 7, 0};
         n = ep1_take(m, sizeof m);
         bad += check("usb ep1: channel messages on cables 1, 5 queued as cable 0",

@@ -76,7 +76,7 @@ UI_SMALL static int32_t ed_rv(const uint8_t *p) { return (int32_t)(p[0] | p[1] <
 /* ---- user sample slots (eng_sample.c): flash SMP_USER_OFF(k) (USR1..3 at 0xA0000.., USR4 at 0xE7000) ----
  * BEGIN erases the header sector (the slot is invalid from then on), WRITE fills the data
  * (offset >= 512, erasing each further sector when the write reaches its start), END sends
- * the header: the device checks the data CRC and writes the header last. (2.7.1 fix) None of them while the song
+ * the header: the device checks the data CRC and writes the header last. (after 2.7.1) None of them while the song
  * plays (ed_flash_busy, as every other flash write: a sector erase silences the audio ~50 ms, a full slot is 20): rc 3. */
 UI_SMALL static uint32_t ed_unpack7(const uint8_t *a, uint32_t na, uint8_t *out, uint32_t max)
 {
@@ -121,7 +121,7 @@ UI_SMALL static int ed_smp_erase(uint32_t k, uint32_t all)  /* header sector, or
     for (i = 0; i < 16u; i++)
         usr_zone[k][i].n = 0;                     /* a sounding voice ends instead of reading 0xFF */
     for (i = 0; i < (all ? SMP_USER_SIZE / 0x1000u : 1u) && !rc; i++) {
-        if (i && ed_flash_busy())                 /* (2.7.1 fix) the song started between two erases (a MIDI START): */
+        if (i && ed_flash_busy())                 /* (after 2.7.1) the song started between two erases (a MIDI START): */
             rc = 3;                               /* stop: the header went first, the slot is already empty */
         else
             rc = fl_erase4k_quiet(ed_smp_slot(k) + i * 0x1000u, &took) ? 1 : 0;
@@ -494,7 +494,7 @@ UI_SMALL static uint32_t ed_bk_commit(void)
         if (!flash_ok || st_save(OBJ_UPRESET0 + id - 6u, raw, n))
             return 4;
         up_bank_find(id - 6u);                            /* (the bank is read where it is now) */
-        up_fav_prune((id - 6u) * UP_PER_BANK, UP_PER_BANK);   /* (2.7.1 fix: its empty slots are no favourites) */
+        up_fav_prune((id - 6u) * UP_PER_BANK, UP_PER_BANK);   /* (after 2.7.1: its empty slots are no favourites) */
         up_gen++;
         return 0;
     }
@@ -828,7 +828,7 @@ UI_SMALL static void ed_handle(const uint8_t *f, uint32_t n)   /* f: the bytes b
         else if (usr_nz[a[0]] || !ed_smp_open[a[0]])
             rc = 4;                                        /* slot in use: SMP_BEGIN first (voices read it) */
         else if (ed_flash_busy())
-            rc = 3;                                        /* PLAY during an upload: nothing written (2.7.1 fix) */
+            rc = 3;                                        /* PLAY during an upload: nothing written (after 2.7.1) */
         else {
             if (!(off & 0xFFFu))                           /* first write into a sector: erase it */
                 rc = fl_erase4k_quiet(ed_smp_slot(a[0]) + off, &took) ? 2u : 0u;
@@ -1197,7 +1197,7 @@ UI_SMALL static void ed_service(void)
     if (!ota_frame_get(&p, &n) || n < 4u || p[0] != ED_HDR0 || p[1] != ED_HDR1 || p[2] != ED_HDR2)
         return;
     ed_w.last_ms = fm1_ms;                                 /* any request keeps WATCH alive */
-    midi_in_ms = fm1_ms;                                   /* (2.7.1: and counts as playing: project.c write_ok) */
+    midi_in_ms = fm1_ms;                                   /* (after 2.7.1: and counts as playing: project.c write_ok) */
     if (p[3] >= ED_SMP_BEGIN) {                            /* large frames: handled in place, then freed */
         ed_handle(p, n);
         ota_frame_done();

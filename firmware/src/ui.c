@@ -562,7 +562,7 @@ UI_SMALL static const char *base_kind(uint32_t n) { return n < NBANK ? BANK_KIND
 
 /* SLOOP 2.7: favourites (PRESETS page, KNOB 4): up to 16 sounds at the top of the PRESETS list, kept in the FM-1's
  * settings (project.c, the settings' side record). An entry: a factory sound, its BANK index; a user preset, FAV_USER |
- * its slot, while the slot holds a sound (2.7.1: an empty slot leaves them, upreset.c up_put, up_fav_prune; one still
+ * its slot, while the slot holds a sound (after 2.7.1: an empty slot leaves them, upreset.c up_put, up_fav_prune; one still
  * here is left out of the list). Program Change keeps the list without them (pc_poll) */
 #define FAV_N 16u
 #define FAV_NONE 0xFFFFu

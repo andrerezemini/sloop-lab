@@ -4,8 +4,8 @@
  * without an answer spins its 20,000 polls. The main loop is simulated at one pass every 16 ms (main.c: ~60 frames
  * a second), usb_poll (TIMER5) is called by hand.
  *   boot        without a host: USB stays off; with one: up at once
- *   no host     one try a second, and no main-loop pass waits in fm1_delay_ms (2.7.1 fix: the 25 ms wait of every
- *               try held the UI once a second on battery); between tries the pads are detached (2.7.1 fix: the PHY
+ *   no host     one try a second, and no main-loop pass waits in fm1_delay_ms (after 2.7.1: the 25 ms wait of every
+ *               try held the UI once a second on battery); between tries the pads are detached (after 2.7.1: the PHY
  *               and the D+ pull-up stayed on, on battery, from one try to the next)
  *   plugged in  a host plugged in later is up within ~1 s; every attach comes >= 20 ms after the pads were
  *               detached (hal/fm1_usb.h)
@@ -157,9 +157,9 @@ int main(void)
     check("no host: one try a second (10 s: 9..11 tries)", usb.retries - tries >= 9u && usb.retries - tries <= 11u);
     check("no host: still off", !usb.up);
     printf("  longest wait of a main-loop pass: %u ms\n", wait_max);
-    check("no host: no main-loop pass waits in fm1_delay_ms (2.7.1)", wait_max == 0);
+    check("no host: no main-loop pass waits in fm1_delay_ms (after 2.7.1)", wait_max == 0);
     printf("  main-loop passes (of %u) that left the pads attached: %u\n", 10000u / 16u, passes_attached);
-    check("no host: the PHY and the D+ pull-up off between tries (2.7.1)", passes_attached == 0);
+    check("no host: the PHY and the D+ pull-up off between tries (after 2.7.1)", passes_attached == 0);
     check("no host: every attach >= 20 ms after the pads were detached", !early);
 
     att = attaches;                     /* the worst case: plugged in just after a try */

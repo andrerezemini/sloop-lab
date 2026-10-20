@@ -2505,7 +2505,7 @@ async function backupRestore(rq, file, progress = () => {}) {
     const d = m.get(id), k = id - 32;
     if (!d.length) {
       const e = parse[CMD.SMP_ERASE](await rq(req.smpErase(k), { timeout: 2500, retries: 0 }));
-      if (e.rc === 3) throw new BackupError("bkStop", "stop the song first");   /* (2.7.1 fix: the sample commands too) */
+      if (e.rc === 3) throw new BackupError("bkStop", "stop the song first");   /* (after 2.7.1: the sample commands too) */
       if (e.rc) throw new BackupError("bkWrite", `erase USR${k + 1} rc ${e.rc}`);
       continue;
     }
@@ -3504,7 +3504,7 @@ function makeMockDevice(opt = {}) {
       case CMD.SMP_BEGIN: case CMD.SMP_ERASE: {
         if (a.length < 1 || a[0] >= st.smp.length) return null;
         const u = st.smp[a[0]];
-        if (st.playing) { b(a[0]); b(3); break; }       /* editor.c (2.7.1 fix): no flash write while the song plays */
+        if (st.playing) { b(a[0]); b(3); break; }       /* editor.c (after 2.7.1): no flash write while the song plays */
         if (cmd === CMD.SMP_ERASE) u.flash.fill(0xFF); else u.flash.fill(0xFF, 0, 4096);
         u.zones = 0; u.name = ""; u.len = 0; u.next = SMP.DATA_OFF;
         b(a[0]); b(0);
@@ -3515,7 +3515,7 @@ function makeMockDevice(opt = {}) {
         const u = st.smp[a[0]], off = a[1] | (a[2] << 7) | (a[3] << 14), dat = unpack7(a.slice(4));
         let rc = 0;
         if (off < SMP.DATA_OFF || (off & 0xFF) || !dat.length || off + dat.length > SMP.SLOT_SIZE || dat.length > 256) rc = 1;
-        else if (st.playing) rc = 3;                  /* (2.7.1 fix: PLAY during an upload, nothing written) */
+        else if (st.playing) rc = 3;                  /* (after 2.7.1: PLAY during an upload, nothing written) */
         else {
           if (!(off & 0xFFF)) u.flash.fill(0xFF, off, off + 4096);
           u.flash.set(dat, off);
@@ -3528,7 +3528,7 @@ function makeMockDevice(opt = {}) {
         if (a.length < 2 || a[0] >= st.smp.length) return null;
         const u = st.smp[a[0]], hd = unpack7(a.slice(1)), dv = new DataView(hd.buffer);
         let rc = 0;
-        if (st.playing) rc = 3;                       /* (2.7.1 fix) */
+        if (st.playing) rc = 3;                       /* (after 2.7.1) */
         else if (hd.length < SMP.HDR_LEN || dv.getUint32(0, true) !== 0x504D5346 || dv.getUint16(4, true) !== 1) rc = 2;
         else if (!hd[6] || hd[6] > 16) rc = 5;
         else {
@@ -8286,7 +8286,7 @@ async function smpUpload(k, prog, ask = true, d = smpDraft[k]) {   /* (d: the DR
   try {
     const t0 = performance.now();
     let r = parse[CMD.SMP_BEGIN](await rq(req.smpBegin(k), { timeout: 1000, retries: 0 }));
-    if (r.rc) throw new Error(r.rc === 3 ? t("smpStop") : "begin rc " + r.rc);   /* 3: the song plays (2.7.1 fix) */
+    if (r.rc) throw new Error(r.rc === 3 ? t("smpStop") : "begin rc " + r.rc);   /* 3: the song plays (after 2.7.1) */
     for (let off = 0; off < data.length; off += 256) {
       const a = SMP.DATA_OFF + off;
       const w = parse[CMD.SMP_WRITE](await rq(req.smpWrite(k, a, data.subarray(off, off + 256)), { timeout: 1000, retries: 1 }));

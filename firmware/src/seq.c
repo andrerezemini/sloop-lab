@@ -53,7 +53,7 @@ static uint8_t pen_lane;                       /* the last drum lane played: the
  * down together are a chord). step_in_q: every synth note-on / note-off from MIDI, note | on << 7 | track << 8, for the
  * STEP page's entry (ui_input.c midi_entry): the audio side writes, the UI reads; a full queue drops and says so */
 static uint32_t mi_pen[4];
-static volatile uint32_t midi_in_ms;           /* (2.7.1) fm1_ms of the last MIDI message played in (a note, a CC, a
+static volatile uint32_t midi_in_ms;           /* (after 2.7.1) fm1_ms of the last MIDI message played in (a note, a CC, a
                                                 * pedal, Program Change; not the clock) or editor request (editor.c):
                                                 * somebody plays, no flash write over the voices (project.c write_ok) */
 #define STEP_IN_Q 32u
@@ -1290,7 +1290,7 @@ static uint32_t arp_pick(track_t *t, uint32_t *list, uint32_t len)
     }
 }
 
-/* the sounding arp note(s) end (CHORD: all of them). arp_note / arp_ch[] hold the note + 1 (2.7.1 fix: a note 0, C-1,
+/* the sounding arp note(s) end (CHORD: all of them). arp_note / arp_ch[] hold the note + 1 (after 2.7.1: a note 0, C-1,
  * was taken for "none" and never ended, its MIDI note-off never sent) */
 static void arp_end(track_t *t)
 {
@@ -1428,11 +1428,11 @@ static void drum_input(uint32_t lane, uint32_t lvl, uint32_t rat, int rec);
 /* SLOOP 2.7, GLO > MIDI 3 > REMOTE: on that channel CC 102 + k (64 and above: down, below: up) holds button k, in the
  * order FX SEL ENV LFO EDIT GLO HOME SAVE ARP SEQ PLAY REC OCT- OCT+ (panel.c B_*). Kept here by label (the audio ISR);
  * the UI turns them into the panel's buttons (ui_input.c remote_poll). An up waits until the down was seen, so a tap
- * sent as two messages at once is still a tap. (2.7.1 fix) trs: it came from the jack (cable 1), whose active sensing
+ * sent as two messages at once is still a tap. (after 2.7.1) trs: it came from the jack (cable 1), whose active sensing
  * can let go of what it holds */
 #define REMOTE_CC0 102u
 static volatile uint32_t remote_lbl, remote_up;   /* labels held, labels let go (not yet seen down) */
-static volatile uint32_t remote_trs;              /* (2.7.1 fix) labels held from the TRS jack */
+static volatile uint32_t remote_trs;              /* (after 2.7.1) labels held from the TRS jack */
 static void remote_cc(uint32_t k, uint32_t value, uint32_t trs)
 {
     uint32_t bit = 1u << k;
@@ -2799,7 +2799,7 @@ static uint32_t mclk_adv(uint32_t n)               /* units to advance this bloc
  * stopped too (the other gear knows the tempo before PLAY); START as the sequencer starts (after a count-in: when it
  * starts), with the pulse of its downbeat; STOP when it stops (CLK OUT or SYNC changed while playing: STOP too). Only
  * while SYNC is INT: a FM-1 that follows a clock never sends one back (no loop through a computer). A pulse goes out
- * in the block it falls in: < 1 ms late. (2.7.1 fix) CLK OUT turned on, or SYNC back to INT, while the song plays:
+ * in the block it falls in: < 1 ms late. (after 2.7.1) CLK OUT turned on, or SYNC back to INT, while the song plays:
  * START waits for the next bar's downbeat, the pulses on the song's grid until then (up to 2.7.1 START went out at
  * once, mid-bar: the other gear's bar off ours until STOP / PLAY). A transport started after this ran in its block
  * (an armed note, a roll, a free take): START with the downbeat's pulse in the next block, 0.73 ms late, the pulses
@@ -3009,7 +3009,7 @@ static void events_block(uint32_t n)
             mclk_event((pkt >> 8) & 0xFFu, ((pkt >> 4) & 15u) ? 2u : 1u);
             continue;
         }
-        midi_in_ms = fm1_ms;                          /* (2.7.1: somebody plays) */
+        midi_in_ms = fm1_ms;                          /* (after 2.7.1: somebody plays) */
         if (song.g[G_RMCH] && ch == (uint32_t)song.g[G_RMCH] - 1u && st == 0xB0u && d1 >= REMOTE_CC0 &&
             d1 < REMOTE_CC0 + 14u) {                  /* 2.7: REMOTE (GLO > MIDI 3): the buttons over MIDI */
             remote_cc(d1 - REMOTE_CC0, d2, pkt & 0xF0u);

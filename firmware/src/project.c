@@ -689,7 +689,7 @@ UI_SMALL static int audio_quiet(void)
     return 1;
 }
 
-/* (2.7.1 fix) may a deferred write (the autosave, the live sections, the settings) go ahead now? When nothing sounds,
+/* (after 2.7.1) may a deferred write (the autosave, the live sections, the settings) go ahead now? When nothing sounds,
  * as before. But a chord held by KBD HOLD or the arp's HOLD sounds until it is let go, and nothing reached the flash:
  * the FM-1's power switch cuts the supply without the firmware knowing (no power-off to save in), so switching off lost
  * the work. So once a write has waited WRITE_LATE (2 min) over the voices and nobody has played for WRITE_HANDS (10 s:
@@ -728,7 +728,7 @@ UI_SMALL static void autosave_tick(void)                /* main loop, every pass
     busy |= uac.feed;                                   /* (a computer recording the USB audio) */
 #endif
     if (busy)
-        write_busy = now;                               /* (2.7.1: somebody plays: no write over the voices, write_ok) */
+        write_busy = now;                               /* (after 2.7.1: somebody plays: no write over the voices, write_ok) */
     if (!flash_ok || song.playing || transport_req || rec_wait || ft_on || ui.menu ||
         now - ui_input_ms < AUTOSAVE_IDLE || now - autosave_ms < AUTOSAVE_GAP || now - autosave_checked < 1000u)
         return;
@@ -739,7 +739,7 @@ UI_SMALL static void autosave_tick(void)                /* main loop, every pass
         autosave_late = 0;                              /* (nothing waits) */
         return;
     }
-    if (!write_ok(&autosave_late))                      /* (2.7.1: a held chord no longer blocks it for good) */
+    if (!write_ok(&autosave_late))                      /* (after 2.7.1: a held chord no longer blocks it for good) */
         return;
     if (st_save(OBJ_AUTOSAVE, &autosave_buf, sizeof autosave_buf) == 0)
         autosave_hash = h;
@@ -1215,18 +1215,18 @@ UI_SMALL static void sections_flush(void)                        /* main loop */
         settings_later = 0;
         song_dirty = 1;                                 /* (settings_save when quiet, with the song) */
     }
-    if (!sec_dirty && !song_dirty && !fav_dirty) {      /* (2.7.1: the favourites alone too, which sections_write
+    if (!sec_dirty && !song_dirty && !fav_dirty) {      /* (after 2.7.1: the favourites alone too, which sections_write
                                                          * saves: they waited for another setting to change) */
         sections_late = 0;                              /* (nothing waits) */
         return;
     }
     if (song.playing || transport_req || fm1_ms - ui_input_ms < 1500u || fm1_ms - tried < 5000u ||
-        !write_ok(&sections_late))                      /* (2.7.1: a held chord no longer blocks it for good) */
+        !write_ok(&sections_late))                      /* (after 2.7.1: a held chord no longer blocks it for good) */
         return;
     tried = fm1_ms;                                     /* (a failed write: again in 5 s, not every frame) */
     sections_late = 0;
     sections_write();
-    if (sec_dirty || fav_dirty)                         /* (2.7.1: the settings too, now tried again for the favourites) */
+    if (sec_dirty || fav_dirty)                         /* (after 2.7.1: the settings too, now tried again for the favourites) */
         ui_message("SAVE ERROR: RETRYING");
 }
 #endif

@@ -5,7 +5,7 @@
  * Built only with FELUCCA_UART=1. Channel messages go into midi_in_q next to
  * USB, as USB-MIDI packets (cable 1: the jack's, CIN = status >> 4; up to 2.7.1 cable 0), so seq.c routes them by
  * channel as it does USB; clock and transport (F8 FA FB FC) are queued with cable 1 (seq.c: SYNC TRS);
- * other realtime, system common and SysEx are dropped. Active sensing (FE) only arms um_sense_lost (2.7.1 fix).
+ * other realtime, system common and SysEx are dropped. Active sensing (FE) only arms um_sense_lost (after 2.7.1).
  *
  * The ring is read by content, not by the DMA count: every slot the parser has
  * not yet been given holds UM_EMPTY, and the reader takes bytes until it meets
@@ -21,9 +21,9 @@
 static volatile uint8_t um_ring[UM_RING] __attribute__((aligned(16)));
 static struct {
     uint32_t rd, bytes, drops, msgs;
-    uint32_t rx_ms, poll_ms;                       /* (2.7.1 fix) when the last byte was read, when the ring was (fm1_ms) */
+    uint32_t rx_ms, poll_ms;                       /* (after 2.7.1) when the last byte was read, when the ring was (fm1_ms) */
     uint8_t st, need, got, d0, sysex;
-    uint8_t sense;                                 /* (2.7.1 fix) active sensing (FE) came: the sender keeps the line busy */
+    uint8_t sense;                                 /* (after 2.7.1) active sensing (FE) came: the sender keeps the line busy */
 } um;
 
 static void uart_midi_init(void)                   /* before timer5_start(): PORTH RMW */
@@ -81,7 +81,7 @@ static void um_byte(uint32_t b)
     }
 }
 
-/* (2.7.1 fix) MIDI 1.0's active sensing on the jack: a sender that sent FE sends a byte at least every 300 ms, so once
+/* (after 2.7.1) MIDI 1.0's active sensing on the jack: a sender that sent FE sends a byte at least every 300 ms, so once
  * it has, a longer silence means the cable is out or the sender is gone. 1 once when that happens (ui_input.c
  * remote_poll: the buttons held from the jack let go), then as a sender without it until FE comes again. The silence
  * is as of the last read of the ring, not now: with the IRQs off (a flash erase) the bytes wait in the ring unread,
@@ -112,7 +112,7 @@ static void um_drain(void)
         um.bytes++;
         um_byte(b);                                /* a UM_EMPTY is an unknown realtime byte: ignored */
     }
-    um.poll_ms = fm1_ms;                           /* (2.7.1 fix: read up to now, um_sense_lost) */
+    um.poll_ms = fm1_ms;                           /* (after 2.7.1: read up to now, um_sense_lost) */
 }
 
 static void uart_midi_poll(void)                   /* TIMER5 ISR, same context as usb_poll */

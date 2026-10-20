@@ -2,17 +2,17 @@
 /* Host test of the deferred flash writes (firmware/src/project.c, the part only the firmware builds: autosave_tick,
  * sections_flush) with the real UI (as tests/ui_pages_test.c drives it), the user presets (upreset.c) and storage.c on
  * a simulated NOR, the audio running between the frames and the main loop's ticks after each, as main.c runs them:
- *   held    (2.7.1) a chord held by KBD HOLD or by the arp's HOLD sounds for good: the working project and a live
+ *   held    (after 2.7.1) a chord held by KBD HOLD or by the arp's HOLD sounds for good: the working project and a live
  *           section (SAVE + key, in RAM) still reach the flash once a write waited 2 min and nobody played for 10 s,
  *           all of it in the same frame (one gap in the sound, ~50 ms per object), not before; never while a key is
  *           held, a knob turns, the transport plays (nor within 10 s of a MIDI STOP), a recording is armed or a
  *           computer records the USB audio
- *   midi    (2.7.1) MIDI counts as playing: a legato pad over MIDI, or a note held by a MIDI sustain pedal, is
+ *   midi    (after 2.7.1) MIDI counts as playing: a legato pad over MIDI, or a note held by a MIDI sustain pedal, is
  *           never cut by a write (as 2.7.1: written once quiet)
- *   favs    (2.7.1) an empty user slot is no favourite: a user preset erased (SAVE > USER > ERASE, the editor's
+ *   favs    (after 2.7.1) an empty user slot is no favourite: a user preset erased (SAVE > USER > ERASE, the editor's
  *           UP_ERASE) leaves the favourites, the others in their order, and a sound saved into a slot whose favourite
  *           an older SLOOP or a backup restore left behind is no favourite; a slot saved over stays one
- *   favs in flash (2.7.1) a change of the favourites alone (KNOB 4 on PRESETS, an erase) reaches the flash with the
+ *   favs in flash (after 2.7.1) a change of the favourites alone (KNOB 4 on PRESETS, an erase) reaches the flash with the
  *           settings, stopped and quiet; a settings write that fails says so and is tried again, no flash: none
  * Run by tests/run_tests.sh (needs build/gen). */
 #define FELUCCA_ARRANGER 1
@@ -158,10 +158,10 @@ int main(void)
     run(60000);
     check(erases == e0 && !autosaved_now() && (sec_dirty & 2u), "held 1 min: nothing written yet (a write waits 2 min for silence)");
     run(75000);
-    check(autosaved_now(), "held 2 min 15 s: the working project in flash all the same (2.7.1)");
-    check(stored(OBJ_PROJECT0 + 1u) && !(sec_dirty & 2u), "held 2 min 15 s: live section B in flash all the same (2.7.1)");
+    check(autosaved_now(), "held 2 min 15 s: the working project in flash all the same (after 2.7.1)");
+    check(stored(OBJ_PROJECT0 + 1u) && !(sec_dirty & 2u), "held 2 min 15 s: live section B in flash all the same (after 2.7.1)");
     check(loud && loud_ms - t0 >= 120000u, "written over the sounding chord, after 2 min of waiting, not before");
-    check(loud >= 2u && loud_last == loud_ms, "the project and section B written in the same frame: one gap, not two (2.7.1)");
+    check(loud >= 2u && loud_last == loud_ms, "the project and section B written in the same frame: one gap, not two (after 2.7.1)");
     check(!audio_quiet() && kh_any(TSEL), "the chord still sounds after the write (nothing let go)");
 
     /* a key held: somebody plays, nothing is written over the chord; let go: 10 s later */
@@ -199,7 +199,7 @@ int main(void)
     check(song.playing && erases == e0 && !autosaved_now() && (sec_dirty & 4u), "MIDI START, the transport playing 3 min over the held chord: nothing written");
     midi_in(0xFCu, 0, 0);
     run(8000);
-    check(!song.playing && erases == e0 && !audio_quiet(), "MIDI STOP 8 s ago, the chord ringing: nothing written yet (2.7.1)");
+    check(!song.playing && erases == e0 && !audio_quiet(), "MIDI STOP 8 s ago, the chord ringing: nothing written yet (after 2.7.1)");
     run(5000);
     check(autosaved_now() && stored(OBJ_PROJECT0 + 2u) && !sec_dirty && !audio_quiet(), "MIDI STOP 13 s ago: written over the chord");
     song.g[G_SYNC] = 0;
@@ -209,7 +209,7 @@ int main(void)
     e0 = erases;
     rec_wait = 1;
     run(240000);
-    check(rec_wait && erases == e0 && (sec_dirty & 8u), "REC armed 4 min over the held chord: nothing written (2.7.1)");
+    check(rec_wait && erases == e0 && (sec_dirty & 8u), "REC armed 4 min over the held chord: nothing written (after 2.7.1)");
     rec_wait = 0;
     run(13000);
     check(stored(OBJ_PROJECT0 + 3u) && !sec_dirty && !audio_quiet(), "REC let go 13 s ago: live section D written over the chord");
@@ -219,7 +219,7 @@ int main(void)
     e0 = erases;
     uac.feed = 1;
     run(240000);
-    check(erases == e0 && !autosaved_now(), "the USB audio recorded 4 min over the held chord: nothing written (2.7.1)");
+    check(erases == e0 && !autosaved_now(), "the USB audio recorded 4 min over the held chord: nothing written (after 2.7.1)");
     uac.feed = 0;
     run(13000);
     check(autosaved_now() && !audio_quiet(), "the recording over 13 s ago: written over the chord");
@@ -243,7 +243,7 @@ int main(void)
     check(erases == e0 && !autosaved_now() && (sec_dirty & 1u), "the arp held 1 min: nothing written yet");
     run(75000);
     check(autosaved_now() && stored(OBJ_PROJECT0) && !sec_dirty && loud > l0 && loud_last - t0 >= 120000u && !audio_quiet(),
-          "the arp held 2 min 15 s: the working project and live section A in flash all the same (2.7.1)");
+          "the arp held 2 min 15 s: the working project and live section A in flash all the same (after 2.7.1)");
     TSEL->p[P_AHOLD] = 0;
     TSEL->p[P_AMODE] = 0;
     run(5000);
@@ -263,7 +263,7 @@ int main(void)
         if (audio_quiet())
             break;
     }
-    check(i == 60u && loud == l0 && erases == e0 && !autosaved_now(), "a legato pad over MIDI 4 min: nothing written over it (2.7.1)");
+    check(i == 60u && loud == l0 && erases == e0 && !autosaved_now(), "a legato pad over MIDI 4 min: nothing written over it (after 2.7.1)");
     midi_in(0x81u, 60u + (59u & 7u), 0);
     run(10000);
     check(audio_quiet() && autosaved_now() && loud == l0, "the pad let go: written once quiet, as before");
@@ -277,7 +277,7 @@ int main(void)
     e0 = erases;
     l0 = loud;
     run(240000);
-    check(loud == l0 && erases == e0 && !autosaved_now() && !audio_quiet(), "a note held 4 min by a MIDI sustain pedal: nothing written over it (2.7.1)");
+    check(loud == l0 && erases == e0 && !autosaved_now() && !audio_quiet(), "a note held 4 min by a MIDI sustain pedal: nothing written over it (after 2.7.1)");
     midi_in(0xB1u, 64, 0);
     run(10000);
     check(audio_quiet() && autosaved_now() && loud == l0, "the pedal up: the note ends, written once quiet");
@@ -300,13 +300,13 @@ int main(void)
         fav_dirty = 0;
         up_ui(1, 6);                                 /* SAVE > USER > ERASE U07 */
         check(!up_used(6) && fav[0] == 3 && fav[1] == 5 && fav[2] == (FAV_USER | 2u) && fav[3] == 9 && fav[4] == FAV_NONE &&
-              fav_dirty, "SAVE > USER > ERASE U07: its favourite gone, the others in their order (2.7.1)");
+              fav_dirty, "SAVE > USER > ERASE U07: its favourite gone, the others in their order (after 2.7.1)");
         TSEL->p[P_LEVEL] -= 7;                       /* another sound into U07 */
         up_ui(2, 6);
-        check(up_used(6) && !fav_has(FAV_USER | 6u) && fav_list(b) == 4u, "a new sound saved into U07: not a favourite (2.7.1)");
+        check(up_used(6) && !fav_has(FAV_USER | 6u) && fav_list(b) == 4u, "a new sound saved into U07: not a favourite (after 2.7.1)");
         fav_dirty = 0;
         check(up_put(2, 0) == 0 && !up_used(2) && !fav_has(FAV_USER | 2u) && fav[2] == 9 && fav[3] == FAV_NONE && fav_dirty,
-              "the editor's UP_ERASE of U03 (up_put): its favourite gone too (2.7.1)");
+              "the editor's UP_ERASE of U03 (up_put): its favourite gone too (after 2.7.1)");
         up_load(6);                                  /* U07 a favourite again, then saved over (not erased): it stays */
         fav_toggle(1);
         TSEL->p[P_LEVEL] += 4;
@@ -319,11 +319,11 @@ int main(void)
         TSEL->p[P_LEVEL] -= 2;                       /* a sound saved into U10 */
         up_ui(2, 9);
         check(up_used(9) && !fav_has(FAV_USER | 9u) && fav[4] == FAV_NONE && fav_list(b) == 4u,
-              "a new sound saved into U10: not a favourite (2.7.1)");
+              "a new sound saved into U10: not a favourite (after 2.7.1)");
         fav[4] = (uint16_t)(FAV_USER | 11u);         /* U12 empty, left behind too: power-on takes it out */
         fav_dirty = 0;
         up_boot();
-        check(fav[3] == (FAV_USER | 6u) && fav[4] == FAV_NONE && fav_dirty, "power-on: U12's favourite left behind gone, U07's kept (2.7.1)");
+        check(fav[3] == (FAV_USER | 6u) && fav[4] == FAV_NONE && fav_dirty, "power-on: U12's favourite left behind gone, U07's kept (after 2.7.1)");
         /* a user bank restored from a backup by the editor (ed_bk_commit id 6, n 0: the bank empty), its lines as it runs
          * them (editor.c is not in this harness): the bank written, read where it is now, its empty slots pruned */
         fav_dirty = 0;
@@ -331,7 +331,7 @@ int main(void)
         up_bank_find(0);
         up_fav_prune(0, UP_PER_BANK);
         check(!up_used(6) && !fav_has(FAV_USER | 6u) && fav[2] == 9 && fav[3] == FAV_NONE && fav_dirty,
-              "the bank restored empty: U07 out of the favourites, the others kept (2.7.1)");
+              "the bank restored empty: U07 out of the favourites, the others kept (after 2.7.1)");
     }
 
     /* ---- favs in flash: a change of the favourites alone is written with the settings (the side record), once
@@ -341,18 +341,18 @@ int main(void)
         uint32_t e1;
         run(10000);
         check(!fav_dirty && st_side_load(OBJ_SETTINGS, &r, sizeof r) == 0 && r.fmagic == FAVS_MAGIC &&
-              !memcmp(r.fav, fav, sizeof fav), "the favourites after the erases in flash, 10 s later (2.7.1)");
+              !memcmp(r.fav, fav, sizeof fav), "the favourites after the erases in flash, 10 s later (after 2.7.1)");
         song.sel = 0;                                /* ANALOG 808 BOOM, KNOB 4 right on PRESETS */
         fav_toggle(1);
         e1 = erases;
         check(!strcmp(ui.msg, "FAV ADDED") && fav_dirty && fav[3] != FAV_NONE, "a factory sound added to the favourites");
         run(10000);
         check(erases > e1 && !fav_dirty && st_side_load(OBJ_SETTINGS, &r, sizeof r) == 0 && !memcmp(r.fav, fav, sizeof fav),
-              "the favourite added in flash, 10 s later (2.7.1: it waited for another setting to change)");
+              "the favourite added in flash, 10 s later (after 2.7.1: it waited for another setting to change)");
         fav_toggle(0);
         run(10000);
         check(!fav_dirty && st_side_load(OBJ_SETTINGS, &r, sizeof r) == 0 && !memcmp(r.fav, fav, sizeof fav) && r.fav[3] == FAV_NONE,
-              "the favourite removed: in flash too, 10 s later (2.7.1)");
+              "the favourite removed: in flash too, 10 s later (after 2.7.1)");
         /* the settings' sector failing: said, tried again every 5 s (as a live section), written once it works */
         fav_toggle(1);
         erase_fail = 1;

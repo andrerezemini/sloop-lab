@@ -926,8 +926,8 @@ int main(int argc, char **argv)
             fm1_in.buttons = keep;
             song.g[G_RMCH] = 0;
             remote_poll();
-            check(ok, "REMOTE (2.7.1): TRS with active sensing gone quiet 330 ms: its buttons let go, USB's stay");
-            check(ok2, "REMOTE (2.7.1): TRS without active sensing: a button held until its up, as before");
+            check(ok, "REMOTE (after 2.7.1): TRS with active sensing gone quiet 330 ms: its buttons let go, USB's stay");
+            check(ok2, "REMOTE (after 2.7.1): TRS without active sensing: a button held until its up, as before");
         }
         {   /* 2.7 beta: USB RATE, its knob in AUDIO (KNOB 3; KNOB 4 with USB SERIAL): AUTO 44.1 48, at the next start */
             int ok = usb_rate == 0u && !(lights_word() >> 28 & 3u);

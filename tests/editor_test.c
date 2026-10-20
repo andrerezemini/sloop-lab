@@ -3,7 +3,7 @@
  * ui_pages_test harness, its replies captured, the user sample slots in a RAM image of their flash (erases and writes
  * counted). Built without editor.c's backup part (FELUCCA_FLASH 0: its objects are project.c's, upreset.c's and
  * fm6_bank.c's); the user preset commands only compile here (upreset.c doubles).
- *   samples  (2.7.1 fix) SMP_BEGIN / SMP_ERASE / SMP_WRITE / SMP_END answer rc 3 while the song plays or PLAY is asked,
+ *   samples  (after 2.7.1) SMP_BEGIN / SMP_ERASE / SMP_WRITE / SMP_END answer rc 3 while the song plays or PLAY is asked,
  *            and touch no flash (a 4 KiB erase silences the audio ~50 ms): a slot in use keeps playing as it was, PLAY
  *            during an upload stops it at the next SMP_WRITE; SMP_INFO answers; a MIDI START between two of
  *            SMP_ERASE's 20 erases stops it there (rc 3, the slot empty); stopped, the same upload goes in and

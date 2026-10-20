@@ -192,7 +192,7 @@ UI_SMALL static void up_values(const up_rec_t *r, int16_t *v)   /* mapped and cl
         v[i] = (int16_t)clamp(v[i], up_desc(r->engine, i)->min, up_desc(r->engine, i)->max);
 }
 
-/* (2.7.1 fix) an empty slot is no favourite: slots k .. k + n - 1 that hold nothing leave the favourites (ui.c fav) */
+/* (after 2.7.1) an empty slot is no favourite: slots k .. k + n - 1 that hold nothing leave the favourites (ui.c fav) */
 UI_SMALL static void up_fav_prune(uint32_t k, uint32_t n)
 {
     for (; n; n--, k++)
@@ -238,7 +238,7 @@ UI_SMALL static int up_put(uint32_t k, const up_rec_t *r)
 #endif
     up_bank_find(b);
     if (!was || !up_used(k))
-        fav_drop(FAV_USER | k);                         /* (2.7.1 fix) a slot erased, or empty before, is no favourite:
+        fav_drop(FAV_USER | k);                         /* (after 2.7.1) a slot erased, or empty before, is no favourite:
                                                          * the next sound saved there showed up as one (ui.c fav) */
     return rc;
 }

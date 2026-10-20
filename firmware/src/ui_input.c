@@ -960,7 +960,7 @@ UI_SMALL static void holds_input(uint32_t pressed, uint32_t now_ms)
 }
 
 /* (2.7) REMOTE: the buttons held over MIDI (seq.c remote_cc) as the panel's (fm1_input.h fm1_remote_btn, read as closed);
- * one let go is released once the debounce has seen it down. REMOTE OFF: none. (2.7.1 fix) The TRS jack has no link to
+ * one let go is released once the debounce has seen it down. REMOTE OFF: none. (after 2.7.1) The TRS jack has no link to
  * lose: a sender with active sensing gone quiet (midi_uart.c um_sense_lost: the cable out, the controller off) lets go
  * of the buttons it held, as their ups would (up to 2.7.1 they stayed held: REC held cleared a track) */
 UI_SMALL static void remote_poll(void)

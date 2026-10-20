@@ -91,7 +91,7 @@ async function editorMock() {
   rc = rc || E.parse[E.CMD.SMP_END](await rq(E.req.smpEnd(1, hdr), { timeout: 2000, retries: 0 })).rc;
   const si = E.parse[E.CMD.SMP_INFO](await rq(E.req.smpInfo()));
   ok(rc === 0 && si.slots[1].zones === 1 && si.slots[1].name === "TEST", "editor: sample upload (CRC checked by the mock)");
-  {   /* (2.7.1 fix) while the song plays the sample commands write nothing and answer rc 3 (editor.c ed_flash_busy, as
+  {   /* (after 2.7.1) while the song plays the sample commands write nothing and answer rc 3 (editor.c ed_flash_busy, as
          every flash write): an upload is refused at SMP_BEGIN, or at the first SMP_WRITE after PLAY; SMP_INFO still
          answers; the pages say "stop the song first" for a 3 from any of them (smpUpload, smpErase, the DRUM KIT's
          erase), and keep the detail for SMP_WRITE / SMP_END, whose 3 may also be the flash or the data CRC */
@@ -655,7 +655,7 @@ async function editorBackup() {
   await E.backupRestore(rq, JSON.parse(JSON.stringify(A)));   /* as written to disk and read back */
   const B = await E.backupCapture(rq, info);
   ok(js(B.objects) === js(A.objects), "backup: restore -> the same bytes again (presets, projects, samples, settings)");
-  for (const at of [C.SMP_ERASE, C.SMP_WRITE, C.SMP_END]) {   /* (2.7.1 fix) PLAY pressed as the restore reaches the samples */
+  for (const at of [C.SMP_ERASE, C.SMP_WRITE, C.SMP_END]) {   /* (after 2.7.1) PLAY pressed as the restore reaches the samples */
     let playing = false, after = 0, code = "", more = null;
     const rqp = (r, o) => {
       if (r[0] >= C.SMP_BEGIN && r[0] <= C.SMP_ERASE) {

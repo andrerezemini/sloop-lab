@@ -816,7 +816,7 @@ static void midi_in_event(uint32_t pkt)
     if (cin >= 8u && cin <= 0xEu && (st >> 4) == cin && !((pkt >> 16) & 0x80u) &&
         (cin == 0xCu || cin == 0xDu || !(pkt & 0x80000000u))) {
         if (mi_w - mi_r < MQ) {
-            midi_in_q[mi_w % MQ] = pkt & ~0xF0u;      /* (2.7.1 fix) cable 0, as the clock: 1 is the TRS jack's (seq.c
+            midi_in_q[mi_w % MQ] = pkt & ~0xF0u;      /* (after 2.7.1) cable 0, as the clock: 1 is the TRS jack's (seq.c
                                                        * remote_cc), whatever cable the host sent */
             RING_PUBLISH();
             mi_w++;
@@ -1327,7 +1327,7 @@ static void usb_attach_sie(void)                        /* the pads detached >= 
     fm1_usb_ep_enable(0x1Fu);
     usb.up = usb.timeouts < 3u;                         /* a dead SIE leaves USB off */
     if (!usb.up)                                        /* ... and the PHY and the D+ pull-up off until the next */
-        fm1_usb_off();                                  /* try (2.7.1 fix: they stayed on, on battery) */
+        fm1_usb_off();                                  /* try (after 2.7.1: they stayed on, on battery) */
 }
 
 static void usb_start(void)                             /* boot, the rescue, the update loader: waits 25 ms */
@@ -1340,7 +1340,7 @@ static void usb_start(void)                             /* boot, the rescue, the
 /* Powered on without a cable, the SIE does not answer and usb_start leaves
  * USB off: retry once a second from the main loop so a cable plugged in
  * later still enumerates. A try detaches the pads on one call and attaches
- * them on a later one, 25 ms on (2.7.1 fix: the try held the main loop for
+ * them on a later one, 25 ms on (after 2.7.1: the try held the main loop for
  * those 25 ms, the screen stopped once a second on battery) */
 static void usb_retry(uint32_t now_ms)
 {

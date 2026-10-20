@@ -99,13 +99,50 @@ below the RAM region took and gave back a pattern at boot, word by word; 2: it d
 used), `stack_free` and `sstack_free` (bytes of core 0's main and supervisor stacks never reached since boot: the
 24 KB and 8 KB of `app.ld` were never measured; `sp` says which one the main loop runs on), `cpu1` (0 not built,
 1 did not report in within 20 ms, 2 answered wrong or late, 3 running), `cpu1_trace` (0xC1000001: reached
-its entry; 0xC1000002: reached its loop), `cpu1_timeouts` (blocks core 1 did not finish in 8 ms: after the
-first, it is held and SLOOP runs on one core), `cpu1_units` (`cpu1 units MASK|auto` sets it live), `cpu1_busy_pct`
+its entry; 0xC1000002: reached its loop; 0xC1DEADvv: it faulted on vector vv and parked), `cpu1_timeouts` (blocks
+core 1 did not finish in 4 ms, or that it read wrong: after the first, it is held and SLOOP runs on one core),
+`cpu1_why` (why it was held: 1 late, 2 its stack, 3 a fault, 4 a wrong read; why it was not started: 5 barred after
+a hold or a crash beside it, until power-off, 6 the boot before failed), `cpu1_bad` (jobs it refused: a wrong read),
+`cpu1_units` (`cpu1 units MASK|auto` sets it live), `cpu1_busy_pct`
 and `cpu1_wait_pct` (core 1's share of a half spent rendering, core 0's share spent waiting for it) and
-`cpu1_stack_free` (bytes of core 1's 2,816 B stack the render never reached: it must stay well above 0 on the
-heaviest patterns). With 2 CORES the last synth part and the drums render on core 1; the audio is bit for bit
+`cpu1_stack_free` (bytes of core 1's 2,816 B stack the render never reached: it must stay above 256 on the
+heaviest patterns; below that core 1 is held, its stack limit and the per-half check). With 2 CORES the last synth part and the drums render on core 1; the audio is bit for bit
 SLOOP 2.6's. MENU > SYSTEM > 2ND CORE switches the split off and on while playing: `cpu_pct` (the console, or
 INFO on the SYSTEM page) should drop with it on, by roughly the drums' and one part's share.
+
+## The second core's guards (after SLOOP 2.7.1)
+
+What a stalled, misreading or faulting core 1 does, and what the render does about it (each found by an audit of
+2.7.1's dual-core code; `tests/cpu1_hold_test.c` stops a job in the middle on the host, as the device's hold does):
+
+- **The mailbox** (`hal/fm1_cpu1.h`, after X0X 1.0.5+ / Felucca 1.6.1 and Jangada's measurements, fm1-x0x#10): core 1
+  runs only the next job (`done + 1`, `done` kept in a register) and only when the check word core 0 wrote with it
+  matches; anything else it counts (`mb.bad`) and core 0 holds it at the next wait. Each core's words on cache lines
+  of their own. The timeout is 4 ms (as Jangada and Felucca), less than a half: one late half at most.
+- **Its stack** (hardening: the deepest job today is 1,580 B of its 2,816, static, no recursion): it sat right
+  above `.c1_text` and the flash driver with nothing checking it; now last in `.lowram`, over 1 KB left free and a
+  256-byte red zone (`app.ld`; `tools/build.py` checks it), so an overflow never reaches code; core 1's own stack
+  limit in its EMU bank traps within 256 bytes of the end (as Melodee, X0X, Felucca); core 0 checks the red zone and
+  the stack's last 256 bytes after every half (`cpu1.c cpu1_guard_half`). Either holds core 1: one core.
+- **A fault on core 1** (after Jangada, X0X and Felucca 1.6.1; `hal/fm1_irq.h fm1_fault_c` reads `cnum` first) no longer runs core 0's report (it stopped
+  the audio for good and held itself before the reset): it leaves `cpu1_trace` 0xC1DEADvv and parks in RAM; core 0
+  holds it at once. Its EMU bank is set by it at start (divide-by-zero trap off, as core 0's).
+- **Every reset holds core 1**: `fm1_cstart` first thing (a reset that does not reset it left it running its loop
+  while `.bss` was cleared under it), UBOOT, the crash screen at once, the fault-in-a-fault reset. The crash screen
+  feeds the 8 s watchdog through its 10 s, so it ends in `fm1_reboot`, not a watchdog reset.
+- **The late path** (`fx.c mix_block`): a part fading between sounds stays on core 0 (its render swaps `t->p` and
+  back: held in between, it kept the old sound for good); the engines' caches are marked valid last (FM6 `fm6_eff`,
+  PHYS SYMP's coefficients, GRAIN's zone index, a grain's voice after its window), a GRAIN reverse window is refilled
+  when the position left it, the SLICER's record index is bounded where it is used, and DIST, the track FILTER and
+  a voice's end write their "done" flag last. `tests/cpu1_hold_test.c` fails with the fade, FM6, GRAIN index, SYMP
+  and SLICER fixes undone one at a time, and with the two GRAIN grain fixes undone together (each alone stops the
+  out-of-bounds read the 2.7.1 order allowed). Accepted residuals, a few instructions wide and for one note: a
+  sample's ADPCM decoder held between its predictor and its position, and a MODAL / MEMB strike.
+- **One core after a failure**: core 1 held for good, or a crash while it had a job (or a bus or core-1 PC-limit
+  flag): the next warm boots start one core until the FM-1 is switched off (`.noinit`, cleared at a power-on);
+  a boot that died in its first 30 s: the next boot only (as Felucca 1.6.1). The player sees "2ND CORE STOPPED"
+  when it is held while playing, "1 CORE: AFTER A CRASH" on a boot that does not start it. X0X 1.0.9 and Felucca
+  1.6.1 go further and save 2ND CORE OFF in the settings.
 
 ## Installing a build of this branch on an FM-1
 
@@ -137,6 +174,8 @@ buffer, the user banks read in place) is the owner's; its figures are in the com
 ## Licence and credits
 
 GPL-3.0-only, as SLOOP, Felucca and X0X. `hal/fm1_cpu1.h` and `hal/fm1_cpu1.S` are Charles Vestal's
-(X0X), brought in unchanged but for a notice; the guard and system additions follow X0X's; the rest of the
+(X0X), brought in unchanged but for a notice, and modified after 2.7.1 with the mailbox of X0X 1.0.5+ / Felucca
+1.6.1 (Leo Kuroshita), Jangada's layout and hardening (zednaked) and Melodee's guards (Kerem Kilic): the files say
+which; the guard and system additions follow X0X's; the rest of the
 branch is Copyright (C) 2026 Andre Rezemini. SLOOP is isod89's; Felucca is Leo Kuroshita's (Hügelton
 Instruments). See `LICENSING.md`.

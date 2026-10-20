@@ -35,9 +35,11 @@ static void track_dist(track_t *t, int32_t *b, uint32_t n)
         return;
     }
     if (!t->dist_on) {                                  /* coming on: no stale high-pass state (a thump) */
-        t->dist_on = 1;
         t->dist_hp = b[0];
         t->dist_lp1 = t->dist_lp2 = 0;
+        __asm__ volatile("" ::: "memory");
+        t->dist_on = 1;                                 /* (after 2.7.1) marked on last: a part held in between (a late
+                                                         * job on core 1) starts from rest again, not from stale state */
     }
     g = 4096 + d * d * 2;                                /* Q12: 1x .. ~9x, gentle at first */
     k = 32000 - d * 95;                                  /* tone: transparent at low drive .. ~3 kHz, Q15 */
@@ -369,15 +371,17 @@ static int djf_block(djf_t *f, int32_t v, tsvf_t *c)
 {
     int32_t to;
     if (v < 0 && f->mode >= 0) {                        /* (switching side: from open) */
-        f->mode = -1;
         f->cut = 127 << 8;
         memset(f->z, 0, sizeof f->z);
         f->seed = 15;                                   /* (2.6) the low-pass starts where the signal is: from rest
                                                          * its output began at 0 under a sounding note (a click) */
+        __asm__ volatile("" ::: "memory");
+        f->mode = -1;                                   /* (after 2.7.1) the side last: held in between, it starts over */
     } else if (v > 0 && f->mode <= 0) {
-        f->mode = 1;
         f->cut = 0;
         memset(f->z, 0, sizeof f->z);
+        __asm__ volatile("" ::: "memory");
+        f->mode = 1;
     }
     if (!f->mode)
         return 0;
@@ -646,19 +650,20 @@ static __attribute__((noinline)) void ins_rest(track_t *t)
  * the LFO tick and a cleared buffer only (after the DIST tail has run out) */
 static void mix_part_run(track_t *t, uint32_t n, mixacc_t *mx, int32_t *b);
 /* (2.6) a preset's fade (voice.c sound_change): the whole part rendered with the sound it had, then the new one back.
- * The sound set aside per core, as part_buf is (a part may fade on each core at once) */
+ * (after 2.7.1) Always on core 0: units_split keeps a fading part there (held between the two swaps on core 1, the
+ * part kept the old sound for good), so the sound set aside needs one copy, not one per core */
 static void mix_part(track_t *t, uint32_t n, mixacc_t *mx, int32_t *b)   /* into the set mx, through the scratch b */
 {
-    static int16_t pnew[2][P_COUNT] __attribute__((section(".lowram")));
-    int16_t *pn = pnew[mx != &acc[0]];
+    static int16_t pnew[P_COUNT] __attribute__((section(".lowram")));
     if (!(t->pold && t->xf_on && t->xf)) {
         mix_part_run(t, n, mx, b);
         return;
     }
-    memcpy(pn, t->p, sizeof pnew[0]);
+    memcpy(pnew, t->p, sizeof pnew);
     memcpy(t->p, t->p_old, sizeof t->p);
+    CPU1_HOLD_POINT(fade_preset);                       /* (t->p swapped: never on core 1, units_split) */
     mix_part_run(t, n, mx, b);
-    memcpy(t->p, pn, sizeof pnew[0]);
+    memcpy(t->p, pnew, sizeof pnew);
 }
 static void mix_part_run(track_t *t, uint32_t n, mixacc_t *mx, int32_t *b)
 {
@@ -805,7 +810,8 @@ static void djf_process(int32_t *l, int32_t *r, uint32_t n)
  * rng() (libc.c): a part whose LFO wraps this block (track_lfo_tick draws) or whose PHYS model changed under
  * a note (phys_render resets with a draw) stays on core 0, where the draws keep their order (units_split).
  * SLOOP 2.6 added two things a part keeps for its block, now per part or per core: the ENV SYNC steps (voice.c
- * esync_k) and the preset fade's sound set aside (mix_part pnew); its INSERT state is per part (ins[]), the drum
+ * esync_k) and the preset fade's sound set aside (mix_part pnew: after 2.7.1 a fading part stays on core 0, so one
+ * copy); its INSERT state is per part (ins[]), the drum
  * track's its own; TEXTURE, the THROWs' glide, FREEZE and the look-ahead limiter run on core 0 outside the units. */
 #define U_DRUMS (1u << NPART)
 #define U_ALL ((2u << NPART) - 1u)
@@ -909,9 +915,11 @@ static uint32_t units_split(void)
         if (!(mask & (1u << k)))
             continue;
         inc = p[P_LSYNC] ? lfo_sync_inc(p) : LFO_INC[p[P_LRATE] & 127];   /* (2.6: LFO 2 SYNC, as track_lfo_tick) */
-        if (t->lfo_ph + inc < t->lfo_ph || (e == &ENG_PHYS && phys_render_draws(t, fade ? t->pe_old[0] : p[P_E0])) ||
+        if (fade || t->lfo_ph + inc < t->lfo_ph || (e == &ENG_PHYS && phys_render_draws(t, fade ? t->pe_old[0] : p[P_E0])) ||
             (e == &ENG_FORMANT && nform > 1u))
-            mask &= ~(1u << k);
+            mask &= ~(1u << k);                         /* (after 2.7.1) a part fading between sounds too: its render swaps
+                                                         * t->p with the old sound and back (mix_part, track_render); held
+                                                         * mid-swap, the part would keep the old sound for good (after 2.7.1) */
     }
     return mask;
 }

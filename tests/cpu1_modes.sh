@@ -5,7 +5,8 @@
 # (tests/cpu1_host.c). The golden renders (tests/regress.c) and tests/mix_split_test.c must give the same hashes
 # with CORES=1 (the job inline, deferred to the wait), CORES=2 (a thread), CORES=2 CHAOS=7 (a slow, erratic
 # thread), CORES=2 CPU1_TIMEOUT_AT=K (a lost job: the fallback, then one core), CPU1_UNITS=0 (no split) and
-# CPU1_UNITS=15 (every unit that may go, goes); and mix_split_test must be clean under ThreadSanitizer.
+# CPU1_UNITS=15 (every unit that may go, goes); and mix_split_test must be clean under ThreadSanitizer. A hold in the
+# middle of a job (tests/cpu1_hold_test.c, the device's late job) must leave no state wrong for good.
 # Of regress only the golden renders, health, voices and crashes count here: its CPU budget is the default
 # run's business (tests/run_tests.sh), and a thread's hand-off is not in the baseline.
 # From the repo root, after tests/run_tests.sh built build/host/regress (it calls this script), or alone:
@@ -46,6 +47,23 @@ split "CORES=1" CORES=1
 split "CORES=2" CORES=2
 split "CORES=2 CHAOS=7" CORES=2 CHAOS=7
 split "CORES=2 CPU1_TIMEOUT_AT=700" CORES=2 CPU1_TIMEOUT_AT=700
+# (after 2.7.1) a hold in the middle of a job (tests/cpu1_hold_test.c): the state it could corrupt for good is the same
+$CC -o "$OUT/cpu1_hold_test" tests/cpu1_hold_test.c -lm || exit 1
+if "$OUT/cpu1_hold_test" > "$OUT/hold.log" 2>&1; then
+    echo "   $(tail -n 1 "$OUT/hold.log")"
+else
+    echo "   a hold in the middle of a job: FAIL"; grep -v "same state$" "$OUT/hold.log" | head -20; fail=1
+fi
+HASAN="${CC_UB:-cc} -O1 -g -w -fsanitize=address,undefined -fno-sanitize=shift-base,signed-integer-overflow -fno-sanitize-recover=all -Ibuild/gen -Ifirmware/src"
+if $HASAN -o "$OUT/cpu1_hold_asan" tests/cpu1_hold_test.c -lm 2>/dev/null; then   # (what a re-render after a hold reads)
+    if "$OUT/cpu1_hold_asan" > "$OUT/hold_asan.log" 2>&1; then
+        echo "   the same under ASan + UBSan: no access out of bounds"
+    else
+        echo "   a hold in the middle of a job, under ASan + UBSan: FAIL"; grep -v "same state$" "$OUT/hold_asan.log" | head -20; fail=1
+    fi
+else
+    echo "   (a hold in the middle of a job under ASan + UBSan: this compiler has none, skipped)"
+fi
 TSAN="${CC_UB:-cc} -O1 -g -w -fsanitize=thread -Ibuild/gen -Ifirmware/src"
 if $TSAN -o "$OUT/mix_split_tsan" tests/mix_split_test.c -lm 2>/dev/null; then
     if env CORES=2 CHAOS=3 TSAN_OPTIONS="halt_on_error=1" "$OUT/mix_split_tsan" QUICK > "$OUT/split_tsan.log" 2>&1; then

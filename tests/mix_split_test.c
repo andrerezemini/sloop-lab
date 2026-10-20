@@ -17,7 +17,8 @@
  *              FILTER, then without), LFO 2 in SYNC with S&H waves (rng() draws at the wraps, timed by the tempo),
  *              UNI and FREE, ENV SYNC on every part (the envelope steps are per part), ANALOG's filter as BP then
  *              HP, a preset loaded under the sounding notes of two parts in one block (both fade with their old
- *              sound at once, one on each core), TEXTURE (VINYL, ducked), REV THROW then ECHO THROW, the punch-in
+ *              sound at once; after 2.7.1 a fading part stays on core 0: fx.c units_split, tests/cpu1_hold_test.c),
+ *              TEXTURE (VINYL, ducked), REV THROW then ECHO THROW, the punch-in
  *              FREEZE, a pitch bend, live drum mutes, the metronome
  * Runs under every mode of the host double of core 1 (tests/cpu1_host.c: CORES, CHAOS, CPU1_TIMEOUT_AT) and
  * under ThreadSanitizer (tests/cpu1_modes.sh). Prints the jobs handed to core 1, to show the split happened.

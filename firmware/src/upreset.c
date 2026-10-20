@@ -118,8 +118,18 @@ UI_SMALL static void up_bank_find(uint32_t b)
     up_bank_xip[b % NELEM(up_bank_xip)] = p && up_bank_ok(p, (int)len) ? p : 0;
 }
 #endif
+/* a decoded record a save must carry over: in use, of its layout's version (up_decode empties another) and with an
+ * np its layout holds, whatever its engine or name. up_valid decides what this build reads; a preset of an engine index
+ * past this build's (a FELUCCA_SLICE=1 synth build's TERRAIN, 13; a later SLOOP's) or without a name stays in flash,
+ * as 2.7.1's whole-bank copy kept it */
+UI_SMALL static int up_kept(const up_rec_t *r)
+{
+    return r->used == UP_USED && r->np <= (r->ver == 1u ? 72u : UP_PMAX);
+}
 /* Convert a whole bank before touching flash; a torn save leaves the old v1
- * or v2 sector readable. Invalid slots remain empty. */
+ * or v2 sector readable. A v2 record is kept byte for byte, a v1 record is
+ * re-encoded (every parameter range fits a byte); free slots and records
+ * up_kept refuses remain empty. */
 static int up_bank_convert(up_bank_t *dst, const up_bank_t *src)
 {
     uint32_t i; up_rec_t r;
@@ -127,7 +137,12 @@ static int up_bank_convert(up_bank_t *dst, const up_bank_t *src)
     dst->magic = UP_BANK_MAGIC; dst->rsize = sizeof(up_wire_t); dst->nslot = UP_PER_BANK;
     for (i = 0; i < UP_PER_BANK; i++) {
         up_decode(src, i, &r);
-        if (up_valid(&r) && up_encode(&dst->r[i], &r)) return 1;
+        if (!up_kept(&r))
+            continue;
+        if (src->rsize == sizeof(up_wire_t))
+            dst->r[i] = src->r[i];
+        else if (up_encode(&dst->r[i], &r))
+            return 1;
     }
     return 0;
 }

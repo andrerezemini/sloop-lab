@@ -91,6 +91,89 @@ int main(void) {
     assert(st_sector(OBJ_UPRESET0,0)==0xDC000u && st_sector(OBJ_UPRESET0+1,1)==0xDF000u);
     bank.rsize=256; assert(!up_bank_ok(&bank,sizeof bank));
     bank.rsize=160; bank.r[0].ver=3; up_decode(&bank,0,&got); assert(!up_valid(&got));
+    {   /* a save into a bank carries over every record in use that this build cannot read: a preset of an engine it
+         * lacks (an index past its engines: a FELUCCA_SLICE=1 synth build's TERRAIN, 13; a later SLOOP's) or without
+         * a name stays in flash, as SLOOP 2.7.1's copy of the whole bank kept it; up_valid still hides it. A v2
+         * record is kept byte for byte; a v1 one converts with every byte its layout allows. Garbage is not carried:
+         * a free slot, another record version, an np its layout cannot hold (which must not make the bank unsaveable
+         * either) */
+        static up_bank_t src, dst;
+        up_rec_t lr, back;
+        up_wire_t w;
+        const uint32_t keep[] = {0, 1, 2, 3, 4, 5}, drop[] = {6, 7, 8, 9, 15};
+        uint32_t i, k;
+        memset(&src, 0, sizeof src);
+        src.magic = UP_BANK_MAGIC; src.rsize = sizeof(up_wire_t); src.nslot = UP_PER_BANK;
+        assert(!up_parse(a, n, &r, &slot));
+        assert(!up_encode(&src.r[0], &r));                               /* 0: one this build reads */
+        lr = r; lr.engine = NENGINES; memcpy(lr.name, "ENGINE 13", 10);
+        assert(!up_encode(&src.r[1], &lr));                              /* 1: the first engine past this build's */
+        lr.engine = 255; assert(!up_encode(&src.r[2], &lr));             /* 2: any engine byte */
+        lr = r; memset(lr.name, 0, sizeof lr.name);
+        assert(!up_encode(&src.r[3], &lr));                              /* 3: no name */
+        lr = r; lr.engine = NENGINES + 1u; lr.np = 4;
+        assert(!up_encode(&src.r[4], &lr));                              /* 4: a short np */
+        lr = r; lr.engine = NENGINES; lr.np = 60;
+        assert(!up_encode(&src.r[5], &lr));
+        src.r[5].p[UP_PMAX - 1u] = 9; src.r[5].reserved[0] = 0x5A; src.r[5].reserved[7] = 1;   /* 5: bytes past np */
+        src.r[6] = src.r[0]; src.r[6].ver = 3;                           /* 6: another record version */
+        src.r[7] = src.r[0]; src.r[7].np = UP_PMAX + 1u;                 /* 7: an np past the layout */
+        src.r[8] = src.r[0]; src.r[8].used = 0x5A;                       /* 8: not in use */
+        for (k = 0; k < 6u; k++) {                                       /* 1..5 hidden at read, as before */
+            up_decode(&src, keep[k], &got);
+            assert(up_valid(&got) == (keep[k] == 0u));
+        }
+        assert(!up_bank_convert(&dst, &src));
+        assert(dst.magic == UP_BANK_MAGIC && dst.rsize == sizeof(up_wire_t) && dst.nslot == UP_PER_BANK);
+        for (k = 0; k < 6u; k++)
+            assert(!memcmp(&dst.r[keep[k]], &src.r[keep[k]], sizeof(up_wire_t)));
+        memset(&w, 0, sizeof w);
+        for (k = 0; k < 5u; k++)
+            assert(!memcmp(&dst.r[drop[k]], &w, sizeof w));
+        for (k = 0; k < 5u; k++) {                                       /* what up_encode wrote round-trips exactly */
+            up_decode(&src, keep[k], &lr);
+            assert(!up_encode(&w, &lr) && !memcmp(&w, &src.r[keep[k]], sizeof w));
+            up_decode(&dst, keep[k], &back);
+            assert(!memcmp(&back, &lr, sizeof lr));
+        }
+        /* through the flash, as up_put does it: a save into slot 26 of bank 1 */
+        assert(!st_save(OBJ_UPRESET0 + 1, &src, sizeof src)); find_bank(1);
+        assert(up_used(16) && !up_used(17) && !up_used(19) && !up_used(26));
+        assert(!up_bank_convert(&bank, up_bank_xip[1]) && !up_encode(&bank.r[10], &r));
+        assert(!st_save(OBJ_UPRESET0 + 1, &bank, sizeof bank)); find_bank(1);
+        assert(up_used(16) && up_used(26) && !up_used(17) && !up_used(22));
+        for (k = 0; k < 6u; k++)
+            assert(!memcmp(&up_bank_xip[1]->r[keep[k]], &src.r[keep[k]], sizeof(up_wire_t)));
+        assert(up_bank_xip[1]->r[1].engine == NENGINES && !memcmp(up_bank_xip[1]->r[1].name, "ENGINE 13", 10));
+
+        /* a v1 bank (SLOOP 2.6 / 2.7.1) with the same kinds of record: converted, nothing lost a byte can hold */
+        memset(&old, 0, sizeof old);
+        old.magic = UP_BANK_MAGIC; old.rsize = 192; old.nslot = 16;
+        for (k = 0; k < 6u; k++) {
+            old.r[k].used = UP_USED; old.r[k].ver = 1; old.r[k].np = 71; old.r[k].engine = (uint8_t)k;
+            memcpy(old.r[k].name, "OLD SOUND", 10);
+            for (i = 0; i < 72u; i++) old.r[k].p[i] = (int16_t)((int32_t)(i * 7u % 256u) - 128);
+            old.r[k].note[k] = (uint8_t)(60u + k); old.r[k].flags[k] = 3;
+        }
+        old.r[1].engine = NENGINES; old.r[2].engine = 200;               /* engines this build lacks */
+        memset(old.r[3].name, 0, sizeof old.r[3].name);                  /* no name */
+        old.r[4].np = 72;                                                /* every v1 parameter */
+        old.r[5].np = 5;
+        old.r[6] = old.r[0]; old.r[6].ver = 2;                           /* not v1: dropped */
+        old.r[7] = old.r[0]; old.r[7].np = 73;                           /* past v1's 72: dropped */
+        assert(!up_bank_convert(&dst, (const up_bank_t *)&old));
+        for (k = 0; k < 6u; k++) {
+            up_decode((const up_bank_t *)&old, k, &lr);
+            up_decode(&dst, k, &back);
+            assert(back.used == UP_USED && back.ver == UP_VER && back.engine == old.r[k].engine && back.np == old.r[k].np);
+            assert(!memcmp(back.name, old.r[k].name, 12) && !memcmp(back.note, lr.note, 32));
+            for (i = 0; i < UP_PMAX; i++) assert(back.p[i] == (i < lr.np ? lr.p[i] : 0));
+            assert(up_valid(&back) == (k == 0u || k == 4u));               /* 4: a whole v1 record of a known engine */
+        }
+        memset(&w, 0, sizeof w);
+        assert(!memcmp(&dst.r[6], &w, sizeof w) && !memcmp(&dst.r[7], &w, sizeof w) && !memcmp(&dst.r[8], &w, sizeof w));
+    }
     puts("user presets: v1/v2, every slot, signed params, parser, legacy mapping and torn migration PASS");
+    puts("user presets: a save keeps the bank's records this build cannot read (other engines, no name) PASS");
     return 0;
 }

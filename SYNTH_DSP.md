@@ -28,7 +28,10 @@ the states rested a few Q23 units below zero and the output never returned to
 to exactly 0. A retrigger or a stolen voice keeps the four stages, as the SVF's
 two (zeroing them thumped on fast mono lines). The ladder returns Q23;
 `ladder_q15` rounds it for a voice, `ladder_bus` scales a track bus by 32 in
-and 8 out, so the track path keeps its resolution and ±2^20 of headroom.
+and 8 out, so the track path keeps its resolution, and holds it within
+±600,000: the track LEVEL that follows multiplies in 32 bits and overflows
+at LEVEL 127 from 884,376 up (-884,373 down) (19/10: it was ±2^20, which a bus
+at full scale reached at RES 0; no engine's bus gets there).
 
 LP/BP/HP keep their original arithmetic. LP24 is appended as ANALOG TYPE 3;
 track TYPE 1 selects the ladder only on the low-pass side. A TYPE switched

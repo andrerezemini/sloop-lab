@@ -7,6 +7,8 @@
  *   tflt type  the track FILTER's TYPE switched SVF <-> LP24 under a note, under a sweep and over a closed cutoff:
  *              each type starts where the other's output was (not the SVF's states of before the ladder took over,
  *              not the input): no step bigger than the filters' own
+ *   ladder bus an artificial bus at full scale through LP24 at RES 0, then LEVEL 127 as mix_part_run multiplies it: the
+ *              ladder's bus stays within +-600000, the product within 32 bits
  * Exit status: the number of failed checks. */
 #include <stdint.h>
 #define main hostsim_main
@@ -215,12 +217,49 @@ static void t_tflt_type(void)
           "track FILTER TYPE SVF <-> LP24 over a closed cutoff: not from the input, no step (B11)");
 }
 
+/* B12: a square at +-1.1M on the bus (no engine gets there: a part's bus peaks at ~400-500k), through the track FILTER
+ * (track_filter_run, as mix_part_run calls it) on LP24 at RES 0 (the ladder at its full gain), then the LEVEL of
+ * mix_part_run at LEVEL 127: (b >> 2) * LEVEL_Q12[127], 9713, in 32 bits, which holds for -884,372 <= b <= 884,375.
+ * The product is computed here in 64 bits: before, the ladder's bus reached ~1.0M and the product passed 2^31 (the
+ * firmware's 32 bits wrap: a full-scale crack) */
+static void t_ladder_bound(void)
+{
+    static const uint8_t HALF[4] = {2, 8, 32, 128};   /* the square's half period, samples */
+    track_t *t = &trk[0];
+    djf_t *f = &tflt[0];
+    tsvf_t fc;
+    int32_t b[CTL], mx = 0, lvl;
+    int64_t pmax = 0;
+    uint32_t h, blk, i, k = 0;
+    setup();
+    t->p[P_TFLT] = -10, t->p[P_TRES] = -40, t->p[P_TFTYPE] = 1, t->p[P_LEVEL] = 127;
+    lvl = LEVEL_Q12[t->p[P_LEVEL] ? clamp(t->p[P_LEVEL] + t->p[P_ED_FX], 1, 127) : 0];   /* (mix_part_run's) */
+    for (h = 0; h < 4u; h++)
+        for (blk = 0; blk < 300u; blk++) {
+            if (!djf_block(f, t->p[P_TFLT], &fc))
+                continue;
+            for (i = 0; i < CTL; i++, k++)
+                b[i] = (k / HALF[h]) & 1u ? 1100000 : -1100000;
+            track_filter_run(t, f, &fc, b, CTL, 0);
+            for (i = 0; i < CTL; i++) {
+                int64_t pr = (int64_t)(b[i] >> 2) * lvl;
+                mx = abs(b[i]) > mx ? abs(b[i]) : mx;
+                pmax = (pr < 0 ? -pr : pr) > pmax ? (pr < 0 ? -pr : pr) : pmax;
+            }
+        }
+    printf("  LP24 on a bus at +-1.1M, LEVEL 127 (x%d): the filter's peak %d, the LEVEL product's %lld (2^31 - 1: %d)\n",
+           lvl, mx, (long long)pmax, INT32_MAX);
+    check(mx <= 600000 && pmax <= INT32_MAX,
+          "LP24 on a bus at full scale: within +-600000, LEVEL 127's product within 32 bits (B12)");
+}
+
 int main(void)
 {
     setvbuf(stdout, 0, _IONBF, 0);
     t_dist_mod();
     t_insert_fade();
     t_tflt_type();
+    t_ladder_bound();
     printf("synth fx: %s\n", fails ? "FAILED" : "all checks ok");
     return fails;
 }

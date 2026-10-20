@@ -200,11 +200,18 @@ static inline int32_t ladder_q15(ladder_t *l, const ladder_coef_t *c, int32_t in
 {
     return clamp((ladder_run(l, c, in) + 128) >> 8, -32768, 32767);
 }
-/* a track bus (fx.c: +-2^20 of headroom, as the SVF path): in / 32 to the ladder, its Q23 / 8 back */
+/* a track bus (fx.c track_filter_run): in / 32 to the ladder, its Q23 / 8 back, within +-600000 (the scale the SVF's
+ * states are held to: +-150000 on the bus / 4); the drum track's four buses too. The bound is the one of the LEVEL
+ * that follows (fx.c mix_part_run): (b >> 2) * lvl in 32 bits, lvl up to LEVEL_Q12[127] = 9713, holds while
+ * |b >> 2| <= 221,093 (2^31 / 9713 = 221,093.8), that is -884,372 <= b <= 884,375 (>> rounds down); at the bound,
+ * 600000 >> 2 = 150000, x 9713 = 1,456,950,000 < 2^31 - 1. Unclamped (+-2^20 before) the ladder reaches ~1.0M on a
+ * bus at full scale at RES 0 (its tanh at full scale, the stages' overshoot): the product passed 2^31
+ * (tests/synth_fx_test.c, ladder bus). No engine's bus gets there (~400-500k at most), and the ladder saturates (a
+ * bus up to 500k comes out under ~500k at any RES): latent */
 static inline int32_t ladder_bus(ladder_t *l, const ladder_coef_t *c, int32_t b)
 {
     int32_t x = ladder_run(l, c, clamp(b >> 5, -32768, 32767));
-    return clamp((x + 4) >> 3, -1048576, 1048575);
+    return clamp((x + 4) >> 3, -600000, 600000);
 }
 
 /* amplitude ramp over the block. Blocks are always CTL long, so x / CTL is a

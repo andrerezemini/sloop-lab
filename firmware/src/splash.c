@@ -5,7 +5,9 @@
 #define UI_SMALL
 #endif
 #ifndef FELUCCA_LOGO_TEXT       /* (2.7) 1: the boot logo as text, "S" and "LOOP" in the four track colours (4.6 KB of flash
-                                 * less: tools/build.py builds so by itself when the flash is full) */
+                                 * less on SLOOP 2.7.1; synth: about 2.4 KB, the logo being an LZ4 block, and 4.6 KB
+                                 * again with FELUCCA_ASSET_LZ4=0. tools/build.py builds so by itself when the flash is
+                                 * full) */
 #define FELUCCA_LOGO_TEXT 0
 #endif
 #if FELUCCA_LOGO_TEXT

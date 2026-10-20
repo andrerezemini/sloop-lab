@@ -387,9 +387,12 @@ def main():
         img, syms, dis, rt = build_app()
     except SystemExit:
         # (2.7) the flash is full: the boot logo as text ("S" and "LOOP" in the tracks' colours, splash.c) gives 4.6 KB
+        # on SLOOP 2.7.1; here the logo is an LZ4 block (FELUCCA_ASSET_LZ4: 2,313 B stored), so about 2.4 KB (the
+        # full profile at the 2.7.1 merge: 3,000 B over with the logo, 568 B over as text), and 4.6 KB again under
+        # FELUCCA_ASSET_LZ4=0 (7,972 -> 3,380 B over)
         if "overflow" not in LAST_ERR or os.environ.get("FELUCCA_LOGO_TEXT") == "1":
             raise
-        print("build: the flash is full: building again with the boot logo as text (FELUCCA_LOGO_TEXT=1, 4.6 KB less)")
+        print("build: the flash is full: building again with the boot logo as text (FELUCCA_LOGO_TEXT=1, about 2.4 KB less)")
         os.environ["FELUCCA_LOGO_TEXT"] = "1"
         img, syms, dis, rt = build_app()
     symbol_report(syms, len(img))

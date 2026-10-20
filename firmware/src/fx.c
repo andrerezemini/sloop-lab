@@ -1009,10 +1009,12 @@ static __attribute__((noinline)) int ins_run(ins_t *s, const int16_t *p, int32_t
         ins_drive(s, p, b, n, tw);
     return s->w != 0;
 }
-/* a part's INSERT on its block b (mix_part): nothing while TYPE is OFF or MIX is 0 and faded */
+/* a part's INSERT on its block b (mix_part): nothing while TYPE is OFF or MIX is 0 and faded. The settings of the
+ * block's render view (render_p: the matrix's shadow, or the old sound while a preset fades), as everything else the
+ * part renders with: a sound loaded under a held note fades out through its own INSERT, not the new sound's */
 static void track_insert(track_t *t, int32_t *b, uint32_t n)
 {
-    t->ins_run = (uint8_t)ins_run(&ins[(uint32_t)(t - trk) % NPART], t->p, b, n);
+    t->ins_run = (uint8_t)ins_run(&ins[(uint32_t)(t - trk) % NPART], render_p(t), b, n);
 }
 /* the INSERT at rest at once (mix_part: TYPE turned OFF while the part was silent, its fade never ran) */
 static __attribute__((noinline)) void ins_rest(track_t *t)

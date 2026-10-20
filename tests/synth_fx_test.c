@@ -2,11 +2,14 @@
 /* synth (sloop-lab): a part's effects under the synth's additions, rendered through mix_block, as fx251_test.c does
  *   dist mod   DIST 20 taken through 0 by the matrix (LFO -> DIST AMT -40): the drive stays on, no re-seeded filter
  *              (fx.c track_dist treats 0 as off and re-seeds when it comes back: a thump every half cycle)
+ *   insert fade a sound loaded under a held note with an INSERT on: the 8 blocks of the fade play the old sound through
+ *              the old INSERT (the render view), whatever INSERT the new sound has
  * Exit status: the number of failed checks. */
 #include <stdint.h>
 #define main hostsim_main
 #include "hostsim.c"
 #undef main
+#include <sys/mman.h>
 static int fails;
 static void check(int ok, const char *what)
 {
@@ -35,6 +38,24 @@ static double d2_of(uint32_t a, uint32_t b)
         if ((d = fabs((double)out_l[i] - 2.0 * out_l[i - 1] + out_l[i - 2])) > m)
             m = d;
     return m;
+}
+/* the run of fn(arg) in a child process from this very state (the voices, the buses, the random numbers): its nb
+ * blocks from block at, in shared memory; this process goes on from the same state */
+static int32_t *shared;
+static void fork_run(void (*fn)(int), int arg, uint32_t at, uint32_t nb)
+{
+    pid_t pid;
+    if (!shared)
+        shared = mmap(0, NB * CTL * 4u, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_ANONYMOUS, -1, 0);
+    fflush(stdout);
+    pid = fork();
+    if (!pid) {
+        fn(arg);
+        render_at(at, nb);
+        memcpy(shared + at * CTL, out_l + at * CTL, nb * CTL * 4u);
+        _exit(0);
+    }
+    waitpid(pid, 0, 0);
 }
 static void slot(track_t *t, int k, int src, int dst, int amt)
 {
@@ -105,10 +126,49 @@ static void t_dist_mod(void)
           "DIST modulated through 0 (LFO -> DIST): the drive stays on, no re-seed, no step (B9)");
 }
 
+/* B10: a sound loaded as ui.c apply_preset_to loads one (sound_change, the panic, the new values) over a held note
+ * that goes through FOLD at full MIX. The fade's 8 blocks render the old sound (mod_begin: p_old), the INSERT too:
+ * the new sound's INSERT must not be heard before the fade ends. Expected: the same load with the new sound's INSERT
+ * equal to the old one (the child). The new sound here leaves the INSERT OFF, as a factory preset does */
+static void load_sound(int same_insert)
+{
+    track_t *t = &trk[0];
+    sound_change(t);
+    panic_req |= 1u;
+    host_preset_req(t, 0, 3);
+    t->p[P_ITYPE] = (int16_t)(same_insert ? IT_FOLD : IT_OFF);
+}
+static void t_insert_fade(void)
+{
+    uint32_t a = 300u, nb = 24u, fade = 0, b;
+    double d = 0, r = 0;
+    setup();
+    trk[0].p[P_REL] = 40;                             /* (the panic releases the note: a release to fade) */
+    trk[0].p[P_ITYPE] = IT_FOLD, trk[0].p[P_IA] = 100, trk[0].p[P_IB] = 96, trk[0].p[P_IC] = 96, trk[0].p[P_IMIX] = 127;
+    trk_note_on(&trk[0], 45, 100);
+    render_at(0, a);
+    fork_run(load_sound, 1, a, nb);
+    load_sound(0);
+    for (b = 0; b < nb; b++) {
+        render_at(a + b, 1);
+        fade += trk[0].xf_on && trk[0].pold;
+    }
+    for (b = a * CTL; b < (a + XF_BLOCKS) * CTL; b++) {
+        d += fabs((double)out_l[b] - shared[b]);
+        r += (double)shared[b] * shared[b];
+    }
+    r = sqrt(r / (XF_BLOCKS * CTL));
+    printf("  INSERT under a preset fade: %u blocks of fade, rms %.0f, mean |diff| to the old INSERT's %.1f\n", fade, r,
+           d / (XF_BLOCKS * CTL));
+    check(fade >= XF_BLOCKS - 1u && r > 200.0 && d == 0.0,
+          "a sound loaded under a held note: its fade plays through the old INSERT, bit for bit (B10)");
+}
+
 int main(void)
 {
     setvbuf(stdout, 0, _IONBF, 0);
     t_dist_mod();
+    t_insert_fade();
     printf("synth fx: %s\n", fails ? "FAILED" : "all checks ok");
     return fails;
 }

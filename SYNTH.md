@@ -66,6 +66,7 @@ SCRATCH, FLUTE DUST) stay in the engines' tables, so every preset number means
 the same sound in both builds (projects and the web editor store numbers), and
 are hidden from BANK (`engines.c preset_hidden`). Older projects using those
 sets load with silent sample voices; all six retained sets are byte-identical.
+Lite does not take a hidden sound as a favourite (*FAV: NOT IN THIS BUILD*).
 No user-sample sectors are repurposed.
 
 Validated local packages are in `build/synth-lite/`, `build/synth-lite-fpu/` and

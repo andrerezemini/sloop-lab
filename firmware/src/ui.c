@@ -653,6 +653,12 @@ UI_SMALL static void fav_toggle(int add)                      /* KNOB 4 on the P
     if (key == FAV_NONE || is_drum(TSEL))
         return;
     if (add) {
+        if (key < NBANK && preset_hidden(BANK[key].e % NENGINES, bank_pi[key])) {
+            ui_message("FAV: NOT IN THIS BUILD");   /* (synth) a sound lite leaves out of the list (its sample set is
+                                                     * empty): fav_list would never show it, and it would hold one of
+                                                     * the 16 places; one another build stored still goes (left) */
+            return;
+        }
         if (fav_has(key)) {
             ui_message("FAV: ALREADY");
             return;

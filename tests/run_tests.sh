@@ -26,10 +26,13 @@ export AC79_SDK="${AC79_SDK:-$HOME/fw-AC79_AIoT_SDK}"
 cd "$(dirname "$0")/.."
 OUT=build/host
 export HOST_SAMPLE_GEN=build/host-full-gen
-mkdir -p "$OUT" "$HOST_SAMPLE_GEN"
+LITE_GEN=build/host-lite-gen
+mkdir -p "$OUT" "$HOST_SAMPLE_GEN" "$LITE_GEN"
 # Target packages may use lite. Host acceptance always includes every legacy
-# sound, in a separate include directory that a concurrent build cannot replace.
+# sound, in a separate include directory that a concurrent build cannot replace;
+# the lite profile's header in its own (the PRESETS list and the regression below).
 FELUCCA_SAMPLES=full python3 tools/gen_samples.py "$HOST_SAMPLE_GEN/felucca_samples.h"
+FELUCCA_SAMPLES=lite python3 tools/gen_samples.py "$LITE_GEN/felucca_samples.h"
 CC="${CC:-cc} -O1 -Wall -Wno-unused-function -I$HOST_SAMPLE_GEN"
 fail=0
 run() { echo "== $1"; shift; "$@" || fail=1; }
@@ -90,6 +93,11 @@ fi
 
 $CC -O2 -w -Ibuild/gen -Ifirmware/src -Ifirmware/hal -o "$OUT/ui_pages_test" tests/ui_pages_test.c -lm
 run "live UI: pages, layers (punch, steps, erase, roll, key, mix), holds, drums, REC, fuzz" "$OUT/ui_pages_test" "$OUT"
+# (synth) the PRESETS list of each sample profile (engines.c preset_hidden: lite does not offer three sounds)
+$CC -O2 -w -Ibuild/gen -Ifirmware/src -Ifirmware/hal -o "$OUT/preset_list_full" tests/preset_list_test.c -lm
+run "PRESETS list, full samples: every sound can be a favourite" "$OUT/preset_list_full" "$OUT"
+${CC_BIN:-cc} -O2 -w -I"$LITE_GEN" -Ibuild/gen -Ifirmware/src -Ifirmware/hal -o "$OUT/preset_list_lite" tests/preset_list_test.c -lm
+run "PRESETS list, lite samples: a sound it leaves out is not taken as a favourite" "$OUT/preset_list_lite" "$OUT"
 # no divide by 0 (the FM-1 runs with the div0 trap off, hal/fm1_irq.h: a real one would give a wrong value
 # silently): the UI fuzz, the sequencer, the projects and a minute of random live use, with UBSan
 UBSAN="${CC_UB:-cc} -O1 -w -fsanitize=integer-divide-by-zero -fno-sanitize-recover=integer-divide-by-zero -I$HOST_SAMPLE_GEN -Ibuild/gen -Ifirmware/src -Ifirmware/hal"
@@ -180,10 +188,7 @@ $CC -O2 -w -Ibuild/gen -Ifirmware/src -o "$OUT/regress" tests/regress.c -lm
 if [ -z "$SKIP_CPU_VALGRIND" ] && command -v valgrind >/dev/null 2>&1; then export CPU_VALGRIND=1; fi
 run "regression: golden renders, health, voices, CPU budget" "$OUT/regress" tests/golden.txt tests/cpu_baseline.txt
 # the lite profile, the image a full feature set needs (SYNTH.md): the same goldens and budgets, less the presets
-# of the sets it leaves empty (engines.c preset_hidden); its header in its own directory, as the full one
-LITE_GEN=build/host-lite-gen
-mkdir -p "$LITE_GEN"
-FELUCCA_SAMPLES=lite python3 tools/gen_samples.py "$LITE_GEN/felucca_samples.h"
+# of the sets it leaves empty (engines.c preset_hidden); its header in its own directory, as the full one (above)
 ${CC_BIN:-cc} -O2 -w -I"$LITE_GEN" -Ibuild/gen -Ifirmware/src -o "$OUT/regress_lite" tests/regress.c -lm
 run "regression (lite sample profile): golden renders, health, voices, CPU budget" "$OUT/regress_lite" tests/golden.txt tests/cpu_baseline.txt
 # SLICE (tests/slice_test.c) needs a FELUCCA_SLICE=1 build; the engine is not built by default

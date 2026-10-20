@@ -40,7 +40,23 @@ static int32_t test_section_fx[4][9];
 static int32_t section_fx_get(uint32_t scene, uint32_t field) { return test_section_fx[scene & 3u][field % 9u]; }
 static void section_fx_adjust(uint32_t scene, uint32_t field, int32_t steps)
 { test_section_fx[scene & 3u][field % 9u] += steps; }
+/* the texts the SONG screen draws below start and end inside their canvas (cv_pset clips the rest unseen: the help
+ * line "sel: FX  rec: store  save: chain", 32 characters of the 8-pixel font from x 4, ran to 260 and lost "ain"):
+ * the header, the chain's entries of 4 and 8 bars, the legend and a message over it, both help lines, both FX pages.
+ * Not drawn here: an entry of 62 to 64 bars, whose length text starts at 60 + w + 6 (w = bars * 120 / 64 + 4) and
+ * still runs past 240 ("64 bars" from 190 to 246): SLOOP 2.7.1's own, to be fixed on the upstream side */
+static uint32_t text_out;
+static int32_t cv_text_in(int32_t x, int32_t y, const felucca_font_t *f, const char *s, uint16_t c)
+{
+    if (x < 0 || x + text_w(f, s) > (int32_t)cv_w) {
+        printf("song UI: \"%s\" from x %d to %d, the canvas is %u wide\n", s, (int)x, (int)(x + text_w(f, s)), (unsigned)cv_w);
+        text_out++;
+    }
+    return cv_text(x, y, f, s, c);
+}
+#define cv_text cv_text_in
 #include "../firmware/src/ui_song.c"
+#undef cv_text
 static void press(uint32_t b) {song_screen_input(1u<<panel.btn[b],0);}
 
 int main(int argc,char **argv)
@@ -97,6 +113,9 @@ int main(int argc,char **argv)
     song.playing=1; enc[EN_K4]=1; song_screen_input(0,0); assert(test_section_fx[0][8]==50);
     ui.force=1; song_screen_draw(); song.playing=0;
     enc[EN_SELECT]=-2; song_screen_input(0,0); assert(!song_fx_page);
-    puts("song UI: independent plan/scene save, overwrite confirmation, stopped-only changes, missing scene, bounds PASS");
+    ui.msg_t=0; ui.force=1; song_screen_draw();      /* (the help lines under the legend, and under a message) */
+    ui_message("STOP FIRST"); ui.force=1; song_screen_draw();
+    assert(!text_out);
+    puts("song UI: independent plan/scene save, overwrite confirmation, stopped-only changes, missing scene, bounds, the help lines, legend and FX pages inside PASS");
     return 0;
 }

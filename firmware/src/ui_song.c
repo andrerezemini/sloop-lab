@@ -114,7 +114,8 @@ UI_SMALL static void song_screen_draw(void)
             cv_text((int32_t)i * 60 + 30 - text_w(&FONT_S, L[i]) / 2, 12, &FONT_S, L[i], TE_G3);
         }
     }
-    cv_text(4, 34, &FONT_S, "sel: FX  rec: store  save: chain", TE_G4);   /* (synth: SELECT turns to the FX pages) */
+    cv_text(4, 34, &FONT_S, "sel:FX  rec:store  save:chain", TE_G4);   /* (synth: SELECT turns to the FX pages; 29 x 8 px
+                                                                             * from x 4: inside 240) */
     cv_text(4, 50, &FONT_S, "oct-:loop/song  oct+ x2:load", TE_G3);   /* (28 x 8 px from x 4: inside 240) */
     cv_blit(0, 172);
 }

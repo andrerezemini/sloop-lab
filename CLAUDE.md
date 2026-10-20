@@ -40,8 +40,10 @@ v2.7.1 and a plain `git merge origin/main` is right again. Decisions taken in th
   lite build hides the empty sets' presets) and skips a hidden one; `base_kind` reads `bank_vis` too.
 - `seq.c arp_tick`: 2.7's `arp_end / arp_step` structure with the matrix's `mod_time` on `arp_off`.
 - `drums.c`: 2.7's glide fields plus the fork's `#if !FELUCCA_BOOT_BSS` initializer; `gfx.c cv_text`: 2.7's
-  `rgb565_over` ramp plus `font_unpack()`; `icons.c`: the LZ4 block plus the new ramp; `ui_song.c`: "sel: FX
-  rec: store  save: chain".
+  `rgb565_over` ramp plus `font_unpack()`; `icons.c`: the LZ4 block plus the new ramp; `ui_song.c`: "sel:FX
+  rec:store  save:chain" (fixed 19/10: 29 characters of FONT_S from x 4 end at 236, inside the 240-pixel canvas; the
+  merge's "sel: FX  rec: store  save: chain", 32, was cut to "save: ch"), and the second line "oct-:loop/song
+  oct+ x2:load" (28, as on the upstream branch fix-misc, 55389f0).
 - `tools/build.py`: 2.7's retry with `FELUCCA_LOGO_TEXT=1` when the XIP overflows, then the fork's
   "rebuild with FELUCCA_SAMPLES=lite" message; `symbol_report` kept.
 - The serial console is **out of the default build** since 2.7 (`felucca.c FELUCCA_CDC 0`, 6-8 KB):

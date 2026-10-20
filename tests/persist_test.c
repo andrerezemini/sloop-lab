@@ -12,6 +12,8 @@
  *   favs    (2.7.1) an empty user slot is no favourite: a user preset erased (SAVE > USER > ERASE, the editor's
  *           UP_ERASE) leaves the favourites, the others in their order, and a sound saved into a slot whose favourite
  *           an older SLOOP or a backup restore left behind is no favourite; a slot saved over stays one
+ *   favs in flash (2.7.1) a change of the favourites alone (KNOB 4 on PRESETS, an erase) reaches the flash with the
+ *           settings, stopped and quiet; a settings write that fails says so and is tried again, no flash: none
  * Run by tests/run_tests.sh (needs build/gen). */
 #define FELUCCA_ARRANGER 1
 #define FELUCCA_FLASH 1
@@ -61,13 +63,15 @@ static uint32_t scope_w;
  * fl_erase4k_quiet) */
 static uint8_t nor[0x100000];
 static uint8_t flash_ok;
-static uint32_t erases, loud, loud_ms, loud_last;
+static uint32_t erases, loud, loud_ms, loud_last, erase_fail;
 static int audio_quiet(void);
 static int st_read(uint32_t off, void *dst, uint32_t n) { memcpy(dst, nor + off, n); return 0; }
 static int st_erase(uint32_t off)
 {
-    memset(nor + off, 0xFF, 4096);
     erases++;
+    if (erase_fail)                                  /* (a sector that does not erase) */
+        return -1;
+    memset(nor + off, 0xFF, 4096);
     if (!audio_quiet()) {                            /* (over the voices: the first and the last) */
         if (!loud++)
             loud_ms = fm1_ms;
@@ -328,6 +332,46 @@ int main(void)
         up_fav_prune(0, UP_PER_BANK);
         check(!up_used(6) && !fav_has(FAV_USER | 6u) && fav[2] == 9 && fav[3] == FAV_NONE && fav_dirty,
               "the bank restored empty: U07 out of the favourites, the others kept (2.7.1)");
+    }
+
+    /* ---- favs in flash: a change of the favourites alone is written with the settings (the side record), once
+     * stopped, quiet and the panel left 1.5 s, as the rest of the settings */
+    {
+        side_rec_t r;
+        uint32_t e1;
+        run(10000);
+        check(!fav_dirty && st_side_load(OBJ_SETTINGS, &r, sizeof r) == 0 && r.fmagic == FAVS_MAGIC &&
+              !memcmp(r.fav, fav, sizeof fav), "the favourites after the erases in flash, 10 s later (2.7.1)");
+        song.sel = 0;                                /* ANALOG 808 BOOM, KNOB 4 right on PRESETS */
+        fav_toggle(1);
+        e1 = erases;
+        check(!strcmp(ui.msg, "FAV ADDED") && fav_dirty && fav[3] != FAV_NONE, "a factory sound added to the favourites");
+        run(10000);
+        check(erases > e1 && !fav_dirty && st_side_load(OBJ_SETTINGS, &r, sizeof r) == 0 && !memcmp(r.fav, fav, sizeof fav),
+              "the favourite added in flash, 10 s later (2.7.1: it waited for another setting to change)");
+        fav_toggle(0);
+        run(10000);
+        check(!fav_dirty && st_side_load(OBJ_SETTINGS, &r, sizeof r) == 0 && !memcmp(r.fav, fav, sizeof fav) && r.fav[3] == FAV_NONE,
+              "the favourite removed: in flash too, 10 s later (2.7.1)");
+        /* the settings' sector failing: said, tried again every 5 s (as a live section), written once it works */
+        fav_toggle(1);
+        erase_fail = 1;
+        run(3000);
+        check(fav_dirty && !strcmp(ui.msg, "SAVE ERROR: RETRYING"), "the favourite added, the settings write failing: SAVE ERROR: RETRYING");
+        e1 = erases;
+        run(10000);
+        check(fav_dirty && erases - e1 >= 1u && erases - e1 <= 3u, "tried again every 5 s, not every frame");
+        erase_fail = 0;
+        run(10000);
+        check(!fav_dirty && st_side_load(OBJ_SETTINGS, &r, sizeof r) == 0 && !memcmp(r.fav, fav, sizeof fav), "the sector good again: written");
+        /* no flash (flash_ok 0): nothing to write, nothing retried */
+        flash_ok = 0;
+        fav_toggle(0);
+        ui_message("");
+        e1 = erases;
+        run(10000);
+        check(!fav_dirty && erases == e1 && strcmp(ui.msg, "SAVE ERROR: RETRYING"), "no flash: the favourites change, no write, no error");
+        flash_ok = 1;
     }
 
     printf(fails ? "persist: %d FAILED\n" : "persist: all ok\n", fails);

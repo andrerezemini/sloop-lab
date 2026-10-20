@@ -1156,7 +1156,7 @@ UI_SMALL static void sections_write(void)                        /* the dirty se
                 sec_dirty &= (uint8_t)~(1u << i);       /* (a failed write stays dirty: tried again later) */
     if (!flash_ok)
 #endif
-        sec_dirty = 0;
+        sec_dirty = fav_dirty = 0;                      /* (no flash: nothing to wait for) */
     (void)i;
     if (song_dirty || fav_dirty) {                      /* (2.7: the favourites too) */
         song_dirty = 0;
@@ -1215,7 +1215,8 @@ UI_SMALL static void sections_flush(void)                        /* main loop */
         settings_later = 0;
         song_dirty = 1;                                 /* (settings_save when quiet, with the song) */
     }
-    if (!sec_dirty && !song_dirty) {
+    if (!sec_dirty && !song_dirty && !fav_dirty) {      /* (2.7.1: the favourites alone too, which sections_write
+                                                         * saves: they waited for another setting to change) */
         sections_late = 0;                              /* (nothing waits) */
         return;
     }
@@ -1225,7 +1226,7 @@ UI_SMALL static void sections_flush(void)                        /* main loop */
     tried = fm1_ms;                                     /* (a failed write: again in 5 s, not every frame) */
     sections_late = 0;
     sections_write();
-    if (sec_dirty)
+    if (sec_dirty || fav_dirty)                         /* (2.7.1: the settings too, now tried again for the favourites) */
         ui_message("SAVE ERROR: RETRYING");
 }
 #endif

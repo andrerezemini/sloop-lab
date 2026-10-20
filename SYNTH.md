@@ -138,7 +138,19 @@ bank under synth writes FUN7 / preset version 2, which SLOOP 2.6 reads as empty
 synth leaves a FUN6 slot in flash as it is when its RAM copy has the same
 content (13/10: the earlier build rewrote every slot as FUN7 at the first idle
 moment), so a device that only played, never saved, still goes back to 2.6 with
-its projects.
+its projects. That rule covers only the four section slots, not the working
+project: its autosave is rewritten as FUN7 as soon as what synth would write
+differs from what it loaded, at the first autosave (20 s or more after
+power-on) or at once when an update or UPDATE MODE starts from synth, whichever
+comes first (`persist_flush_now` writes the working project before every
+intentional reset: UPDATE MODE, the installer's M-UPGRADE, the host's UBOOT
+SysEx). It differs after any change, and for one written by SLOOP 2.6 even
+without a change: loading it adds 2.7's marks (`rsv[0]` bit 0x40, the `G_SAVE`
+check, KBD HOLD off where the arp is off), so its hash differs, and going back
+within the first 20 s does not keep it either. A FUN6 autosave written by 2.7
+or 2.7.1 reads back to the same bytes and stays until something changes. 2.6
+and 2.7.1 skip a FUN7 autosave and power on with their default project; only a
+backup brings the working project back.
 
 ## Verification
 

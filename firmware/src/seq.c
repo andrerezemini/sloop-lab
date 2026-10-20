@@ -2793,7 +2793,11 @@ static uint32_t mclk_adv(uint32_t n)               /* units to advance this bloc
  * stopped too (the other gear knows the tempo before PLAY); START as the sequencer starts (after a count-in: when it
  * starts), with the pulse of its downbeat; STOP when it stops (CLK OUT or SYNC changed while playing: STOP too). Only
  * while SYNC is INT: a FM-1 that follows a clock never sends one back (no loop through a computer). A pulse goes out
- * in the block it falls in: < 1 ms late */
+ * in the block it falls in: < 1 ms late. (2.7.1 fix) CLK OUT turned on, or SYNC back to INT, while the song plays:
+ * START waits for the next bar's downbeat, the pulses on the song's grid until then (up to 2.7.1 START went out at
+ * once, mid-bar: the other gear's bar off ours until STOP / PLAY). A transport started after this ran in its block
+ * (an armed note, a roll, a free take): START with the downbeat's pulse in the next block, 0.73 ms late, the pulses
+ * after it on the grid */
 static uint32_t mco_u;                            /* units since the last pulse */
 static uint8_t mco_play;                          /* the other gear was told START */
 static void clkout_block(uint32_t n)
@@ -2806,13 +2810,20 @@ static void clkout_block(uint32_t n)
         return;
     }
     if (song.playing && !mco_play) {
-        midi_out_event(0x0Fu | 0xFAu << 8);           /* START, then the downbeat's pulse */
-        midi_out_event(0x0Fu | 0xF8u << 8);
-        mco_u = 0;
+        uint32_t w = (clk_beat & 3u) * BEAT_U + clk_pos;   /* units into the bar */
+        mco_u = w % MCLK_PULSE_U;                     /* (on the song's grid) */
+        if (song.tick <= 1u) {                        /* the transport started in this block or the last one */
+            midi_out_event(0x0Fu | 0xFAu << 8);       /* START, then the downbeat's pulse */
+            midi_out_event(0x0Fu | 0xF8u << 8);
+            mco_play = 1;
+        } else if (w + n * (uint32_t)song.g[G_BPM] >= 4u * BEAT_U) {
+            midi_out_event(0x0Fu | 0xFAu << 8);       /* the next bar's downbeat in this block: START, its pulse below */
+            mco_play = 1;
+        }
     } else if (!song.playing && mco_play) {
         midi_out_event(0x0Fu | 0xFCu << 8);           /* STOP */
+        mco_play = 0;
     }
-    mco_play = (uint8_t)(song.playing != 0);
     mco_u += n * (uint32_t)song.g[G_BPM];
     while (mco_u >= MCLK_PULSE_U) {
         mco_u -= MCLK_PULSE_U;

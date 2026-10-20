@@ -1895,6 +1895,118 @@ static void t_drdly(void)
           "2.5: GLO > DRUMS > DLY: the drums echo in the tempo delay (more with more DLY, through the FILTER too); 0: none");
 }
 
+/* 2.7.1: GLO > MIDI 3 > CLK OUT turned on, or SYNC back to INT, while the song plays: START waits for the next bar's
+ * downbeat (up to 2.7.1 it went out at once, the other gear's bar a piece of a bar off until STOP / PLAY), the pulses
+ * on the song's grid until then and after. PLAY: START with its first pulse in the block the transport starts, as in
+ * 2.7. A transport started by an armed note (after CLK OUT ran in that block): START with the downbeat's pulse one
+ * block (0.73 ms) late at most, the pulses after it on the grid */
+#define CO_L (4u * BEAT_U)                          /* a bar, in clock units */
+static uint32_t co_rt[8], co_n, co_s;
+static void co_block(void)                          /* a block: MIDI OUT's realtime bytes in co_rt; co_s: where in the bar
+                                                     * the block began (its span: co_s .. co_s + adv) */
+{
+    uint32_t adv = CTL * (uint32_t)song.g[G_BPM];
+    run_block();
+    co_s = ((clk_beat & 3u) * BEAT_U + clk_pos + CO_L - adv) % CO_L;
+    co_n = 0;
+    while (mo_r != mo_w) {
+        uint32_t b = (midi_out_q[mo_r++ % MQ] >> 8) & 0xFFu;
+        if (b >= 0xF8u && co_n < 8u)
+            co_rt[co_n++] = b;
+    }
+}
+static uint32_t co_count(uint32_t b)
+{
+    uint32_t i, c = 0;
+    for (i = 0; i < co_n; i++)
+        c += co_rt[i] == b;
+    return c;
+}
+static uint32_t co_grid(void)                       /* the song's pulses in the block (each in the block it falls in) */
+{
+    uint32_t adv = CTL * (uint32_t)song.g[G_BPM];
+    return (co_s + adv) / MCLK_PULSE_U - co_s / MCLK_PULSE_U;
+}
+static int co_wait_start(uint32_t max, int late_ok)   /* blocks until START: the pulses on the grid before and after,
+                                                       * START on a downbeat, with its pulse right after it */
+{
+    uint32_t k, starts = 0, adv = CTL * (uint32_t)song.g[G_BPM];
+    int ok = 1;
+    for (k = 0; k < max; k++) {
+        co_block();
+        if (co_count(0xFAu)) {
+            starts++;
+            ok &= co_n == 2u && co_rt[0] == 0xFAu && co_rt[1] == 0xF8u;   /* START, the downbeat's pulse */
+            ok &= co_s == 0u || co_s + adv >= CO_L || (late_ok && co_s <= adv);
+            if (!ok)
+                printf("seq2:   START at %u units into the bar (block %u), bytes %u\n", co_s, k, co_n);
+        } else {
+            ok &= co_count(0xF8u) == co_grid() && co_n == co_grid();
+        }
+        if (starts && k > 400u)
+            break;
+    }
+    return ok && starts == 1u;
+}
+static void t_clkout_bar(void)
+{
+    uint8_t cfg = usb.config;
+    uint32_t k, adv;
+    int ok;
+    reset(120);
+    adv = CTL * (uint32_t)song.g[G_BPM];
+    usb.config = 1;
+    mclk.alive = 0;
+    song.g[G_MIDI] = 0, song.g[G_SYNC] = 0, song.g[G_CLKOUT] = 1;
+    rec_wait = 0, rec_count = 0, song.rec = 0;
+    mo_r = mo_w;
+    for (k = 0; k < 50u; k++)
+        co_block();                                 /* stopped: the pulses alone */
+    transport_req = 1;                              /* PLAY: START, the downbeat's pulse, in the first block */
+    co_block();
+    ok = co_n == 2u && co_rt[0] == 0xFAu && co_rt[1] == 0xF8u && co_s == 0u;
+    for (k = 0; k < 3000u; k++) {                   /* (over a bar) */
+        co_block();
+        ok &= co_n == co_grid() && !co_count(0xFAu);
+    }
+    check(ok, "CLK OUT: PLAY: START + the downbeat's pulse in the block it starts, then 24 a beat on the grid (as 2.7)");
+    transport_req = 2, co_block();
+    song.g[G_CLKOUT] = 0;                           /* CLK OUT turned on at beat 1.5 of a bar */
+    transport_req = 1;
+    while (!(clk_beat == 1u && clk_pos >= BEAT_U / 2u))
+        co_block();
+    song.g[G_CLKOUT] = 1;
+    check(co_wait_start(6000u, 0), "2.7.1: CLK OUT on mid-bar while playing: START on the next downbeat, pulses on the grid");
+    song.g[G_SYNC] = 1;                             /* SYNC USB (no clock coming), then back to INT on beat 3 */
+    co_block();
+    k = co_count(0xFCu);
+    while (!((clk_beat & 3u) == 2u && clk_pos >= BEAT_U / 3u))
+        co_block();
+    song.g[G_SYNC] = 0;
+    check(k == 1u && co_wait_start(6000u, 0), "2.7.1: SYNC back to INT mid-bar while playing: START on the next downbeat");
+    transport_req = 2, co_block();
+    trk[1].step[0].time = ST_NOTE, trk[1].step[0].n = 1, trk[1].step[0].note[0] = 48, trk[1].step[0].vel = 100;
+    for (k = 0; k < 40u; k++)
+        co_block();
+    song.sel = 0, song.g[G_ROUTE] = 0, song.g[G_CH1] = 1, song.g[G_CHOTH] = 0;
+    trk[0].p[P_AMODE] = 0;
+    rec_wait = 1;                                   /* armed (START: NOTE): a MIDI note starts the transport */
+    mf_on(0, 60);
+    co_block();
+    ok = song.playing && !co_count(0xFAu);          /* (CLK OUT ran before the note in this block) */
+    ok &= co_wait_start(3000u, 1);
+    check(ok, "2.7.1: CLK OUT, a transport started by an armed note: START one block late at most, pulses on the grid");
+    mf_off(0, 60);
+    transport_req = 2, co_block();
+    rec_wait = 0, song.rec = 0;
+    song.g[G_CLKOUT] = 0;
+    co_block();
+    steps_clear(&trk[0]), steps_clear(&trk[1]);
+    usb.config = cfg;
+    mo_r = mo_w;
+    mi_r = mi_w;
+}
+
 int main(void)
 {
     t_midich();
@@ -1932,6 +2044,7 @@ int main(void)
     t_mute();
     t_chordplus();
     t_arp0();
+    t_clkout_bar();
     printf("seq2: %s\n", fails ? "FAILED" : "all checks ok");
     return fails;
 }

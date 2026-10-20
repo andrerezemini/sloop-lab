@@ -1588,7 +1588,7 @@ static uint32_t arp_notes(const track_t *t, uint32_t blocks)   /* the notes the 
     m[0] = m[1] = m[2] = m[3] = 0;
     for (b = 0; b < blocks; b++) {
         run_block();
-        if (t->arp_note) m[t->arp_note >> 5] |= 1u << (t->arp_note & 31u);
+        if (t->arp_note) m[(t->arp_note - 1u) >> 5] |= 1u << ((t->arp_note - 1u) & 31u);   /* (note + 1, 2.7.1) */
     }
     for (b = 0; b < 128u; b++) if ((m[b >> 5] >> (b & 31u)) & 1u) r = r * 131u + b + 1u;
     return r;
@@ -1634,6 +1634,94 @@ static void t_arp191(void)
         song.octave = 0;
         t->p[P_AMODE] = 0; t->p[P_CHORD] = 0; t->nheld = 0; t->arp_phys = 0;
     }
+}
+/* 2.7.1: an arp note of MIDI number 0 (C-1: from a DAW or a keyboard, or OCT -3 + TRN -24 + F3 from the keys) ends as
+ * any other: every note the arp starts is ended once, its voice and (MIDI = SEQ) its MIDI OUT note-off, in every MODE
+ * (CHORD: several notes a step), latched (ARP HOLD, then ARP OFF) and kept over a sound loaded under the running arp.
+ * Up to 2.7.1 the arp took a note 0 for "none sounding": it was never released, its note-off never sent */
+static uint32_t a0_on[128], a0_off[128];
+static void a0_run(uint32_t blocks)                 /* blocks of audio; MIDI OUT counted per note */
+{
+    while (blocks--) {
+        run_block();
+        while (mo_r != mo_w) {
+            uint32_t p = midi_out_q[mo_r % MQ], st = (p >> 8) & 0xF0u, nt = (p >> 16) & 127u;
+            mo_r++;
+            if (st == 0x90u && (p >> 24))
+                a0_on[nt]++;
+            else if (st == 0x80u || st == 0x90u)
+                a0_off[nt]++;
+        }
+    }
+}
+static int a0_ended(const track_t *t)               /* nothing sounds, every note sent on was sent off once */
+{
+    uint32_t n;
+    int ok = !gates(t, 200);
+    for (n = 0; n < 128u; n++)
+        ok &= a0_on[n] == a0_off[n];
+    return ok;
+}
+static void t_arp0(void)
+{
+    static const uint8_t CH[2][3] = {{0}, {12, 7, 0}};   /* (0 pressed last: REPEAT plays it) */
+    track_t *t = &trk[0];
+    uint8_t cfg = usb.config, eng[NPART];
+    uint32_t m, c, k, bad = 0, played0 = 0;
+    for (k = 0; k < NPART; k++)
+        eng[k] = trk[k].eng_req;
+    for (c = 0; c < 2u; c++)                        /* note 0 alone; 0 with 7 and 12 */
+        for (m = 1; m <= (uint32_t)TP[P_AMODE].max; m++) {
+            mf_prep();
+            usb.config = 1;
+            mo_r = mo_w;
+            memset(a0_on, 0, sizeof a0_on), memset(a0_off, 0, sizeof a0_off);
+            song.sel = 0, song.g[G_MIDI] = 1;       /* MIDI = SEQ: the arp's notes go out */
+            t->p[P_AMODE] = (int16_t)m, t->p[P_AOCT] = 2, t->p[P_APROB] = 127, t->p[P_AGATE] = 64;
+            t->p[P_ARATE] = 3;                      /* 1/32: ~86 blocks a step at 120 BPM */
+            for (k = 0; k < (c ? 3u : 1u); k++)
+                mf_on(0, CH[c][k]);
+            a0_run(1600);
+            played0 += a0_on[0] != 0u;
+            for (k = 0; k < (c ? 3u : 1u); k++)
+                mf_off(0, CH[c][k]);
+            a0_run(40);
+            if (!a0_ended(t)) {
+                printf("seq2:   arp MODE %s, %s: note 0 on %u off %u, voices %u\n", N_AMODE[m], c ? "12 7 0" : "0",
+                       a0_on[0], a0_off[0], gates(t, 200));
+                bad++;
+            }
+        }
+    check(!bad && played0 == 2u * (uint32_t)TP[P_AMODE].max,
+          "2.7.1: arp, note 0 (alone, with 7 and 12), every MODE: its voice ends, its MIDI OUT note-off is sent");
+    mf_prep();                                      /* latched: ARP HOLD, then ARP OFF */
+    usb.config = 1;
+    mo_r = mo_w;
+    memset(a0_on, 0, sizeof a0_on), memset(a0_off, 0, sizeof a0_off);
+    song.sel = 0, song.g[G_MIDI] = 1;
+    t->p[P_AMODE] = AM_CHORD, t->p[P_AHOLD] = 1, t->p[P_AOCT] = 1, t->p[P_APROB] = 127;
+    mf_on(0, 0), mf_on(0, 4), a0_run(4), mf_off(0, 0), mf_off(0, 4);
+    a0_run(600);
+    k = a0_on[0] != 0u && gates(t, 0) + gates(t, 4) <= 2u;
+    arp_keep_req |= 1u, panic_req |= 1u;            /* a sound loaded under the running arp (ui.c apply_preset_to) */
+    a0_run(300);
+    k &= a0_on[0] > 1u;
+    t->p[P_AMODE] = 0;                              /* ARP OFF: the latched notes end */
+    a0_run(4);
+    t->p[P_AHOLD] = 0;
+    a0_run(4);
+    check(k && a0_ended(t), "2.7.1: arp CHORD latched on note 0, a sound loaded under it, ARP OFF: it ends, note-off sent");
+    usb.config = cfg;
+    song.g[G_MIDI] = 0;
+    t->p[P_AMODE] = 0, t->p[P_AHOLD] = 0, t->p[P_AOCT] = 1, t->p[P_ARATE] = 2, t->nheld = 0, t->arp_phys = 0;
+    for (k = 0; k < NPART; k++) {                   /* (as it was for the tests after: engines, no voice) */
+        trk[k].eng_req = trk[k].engine = eng[k];
+        for (c = 0; c < NVOICE; c++)
+            trk[k].v[c].active = trk[k].v[c].gate = 0, trk[k].v[c].stage = 0;
+    }
+    run_block();
+    mo_r = mo_w;
+    mi_r = mi_w;
 }
 static void cc_push(uint32_t ch, uint32_t cc, uint32_t v) { mclk_push(0x0Bu | (0xB0u | ch) << 8 | cc << 16 | v << 24); }
 static void t_midicc(void)
@@ -1843,6 +1931,7 @@ int main(void)
     t_chords();
     t_mute();
     t_chordplus();
+    t_arp0();
     printf("seq2: %s\n", fails ? "FAILED" : "all checks ok");
     return fails;
 }

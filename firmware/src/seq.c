@@ -1287,19 +1287,20 @@ static uint32_t arp_pick(track_t *t, uint32_t *list, uint32_t len)
     }
 }
 
-/* the sounding arp note(s) end (CHORD: all of them) */
+/* the sounding arp note(s) end (CHORD: all of them). arp_note / arp_ch[] hold the note + 1 (2.7.1 fix: a note 0, C-1,
+ * was taken for "none" and never ended, its MIDI note-off never sent) */
 static void arp_end(track_t *t)
 {
     uint32_t i;
     for (i = 0; i < 3u; i++)
         if (t->arp_ch[i]) {
-            trk_note_off(t, t->arp_ch[i]);
-            seq_out_off(t, t->arp_ch[i]);
+            trk_note_off(t, t->arp_ch[i] - 1u);
+            seq_out_off(t, t->arp_ch[i] - 1u);
             t->arp_ch[i] = 0;
         }
     if (t->arp_note) {
-        trk_note_off(t, t->arp_note);
-        seq_out_off(t, t->arp_note);
+        trk_note_off(t, t->arp_note - 1u);
+        seq_out_off(t, t->arp_note - 1u);
         t->arp_note = 0;
     }
 }
@@ -1322,8 +1323,8 @@ static int arp_step(track_t *t)
         return 0;
     t->arp_idx++;
     if (t->p[P_AMODE] != AM_CHORD) {
-        t->arp_note = (uint8_t)list[arp_pick(t, list, len)];
-        arp_play(t, t->arp_note);
+        t->arp_note = (uint8_t)(list[arp_pick(t, list, len)] + 1u);
+        arp_play(t, t->arp_note - 1u);
         return 1;
     }
     o = t->arp_idx % (uint32_t)(t->p[P_AOCT] > 0 ? t->p[P_AOCT] : 1);
@@ -1332,9 +1333,9 @@ static int arp_step(track_t *t)
         if (nt == 127u && top++)
             continue;                               /* (notes clamped onto the top one: once) */
         if (!t->arp_note)
-            t->arp_note = (uint8_t)nt;
+            t->arp_note = (uint8_t)(nt + 1u);
         else
-            t->arp_ch[i - 1u] = (uint8_t)nt;
+            t->arp_ch[i - 1u] = (uint8_t)(nt + 1u);
         arp_play(t, nt);
     }
     return 1;

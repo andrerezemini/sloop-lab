@@ -192,10 +192,10 @@ static void arp_modes_test(void)
                (got[j - 1] == 64 && (got[j] == 60 || got[j] == 67)));
     t->p[P_AMODE] = AM_CHORD, t->p[P_AOCT] = 2;     /* CHORD: the held notes together, an octave up every other step */
     t->arp_idx = 0xFFFFFFFFu;
-    assert(arp_step(t) && t->arp_note == 60 && t->arp_ch[0] == 64 && t->arp_ch[1] == 67 && !t->arp_ch[2]);
-    arp_end(t);
+    assert(arp_step(t) && t->arp_note == 60 + 1 && t->arp_ch[0] == 64 + 1 && t->arp_ch[1] == 67 + 1 && !t->arp_ch[2]);
+    arp_end(t);                                     /* (arp_note, arp_ch[]: the note + 1, 2.7.1) */
     assert(!t->arp_note && !t->arp_ch[0] && !t->arp_ch[1]);
-    assert(arp_step(t) && t->arp_note == 72 && t->arp_ch[0] == 76 && t->arp_ch[1] == 79);
+    assert(arp_step(t) && t->arp_note == 72 + 1 && t->arp_ch[0] == 76 + 1 && t->arp_ch[1] == 79 + 1);
     arp_end(t);
     t->nheld = 0;
     assert(!arp_step(t) && !t->arp_note);

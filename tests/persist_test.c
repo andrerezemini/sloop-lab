@@ -9,6 +9,9 @@
  *           computer records the USB audio
  *   midi    (2.7.1) MIDI counts as playing: a legato pad over MIDI, or a note held by a MIDI sustain pedal, is
  *           never cut by a write (as 2.7.1: written once quiet)
+ *   favs    (2.7.1) an empty user slot is no favourite: a user preset erased (SAVE > USER > ERASE, the editor's
+ *           UP_ERASE) leaves the favourites, the others in their order, and a sound saved into a slot whose favourite
+ *           an older SLOOP or a backup restore left behind is no favourite; a slot saved over stays one
  * Run by tests/run_tests.sh (needs build/gen). */
 #define FELUCCA_ARRANGER 1
 #define FELUCCA_FLASH 1
@@ -274,6 +277,58 @@ int main(void)
     midi_in(0xB1u, 64, 0);
     run(10000);
     check(audio_quiet() && autosaved_now() && loud == l0, "the pedal up: the note ends, written once quiet");
+
+    /* ---- favs: an empty user slot leaves the favourites (ui.c fav, upreset.c up_put, up_fav_prune) */
+    {
+        uint32_t b[FAV_N];
+        up_ui(2, 6);                                 /* SAVE > USER > SAVE: U07, U03 */
+        up_ui(2, 2);
+        check(up_used(6) && up_used(2), "SAVE > USER: U03 and U07 stored");
+        for (i = 0; i < FAV_N; i++)
+            fav[i] = FAV_NONE;
+        fav[0] = 3;
+        up_load(6);                                  /* U07 on the track, KNOB 4 right on PRESETS: a favourite */
+        fav_toggle(1);
+        fav[2] = 5;
+        fav[3] = (uint16_t)(FAV_USER | 2u);
+        fav[4] = 9;
+        check(fav[1] == (FAV_USER | 6u) && fav_list(b) == 5u, "favourites: 3, U07, 5, U03, 9");
+        fav_dirty = 0;
+        up_ui(1, 6);                                 /* SAVE > USER > ERASE U07 */
+        check(!up_used(6) && fav[0] == 3 && fav[1] == 5 && fav[2] == (FAV_USER | 2u) && fav[3] == 9 && fav[4] == FAV_NONE &&
+              fav_dirty, "SAVE > USER > ERASE U07: its favourite gone, the others in their order (2.7.1)");
+        TSEL->p[P_LEVEL] -= 7;                       /* another sound into U07 */
+        up_ui(2, 6);
+        check(up_used(6) && !fav_has(FAV_USER | 6u) && fav_list(b) == 4u, "a new sound saved into U07: not a favourite (2.7.1)");
+        fav_dirty = 0;
+        check(up_put(2, 0) == 0 && !up_used(2) && !fav_has(FAV_USER | 2u) && fav[2] == 9 && fav[3] == FAV_NONE && fav_dirty,
+              "the editor's UP_ERASE of U03 (up_put): its favourite gone too (2.7.1)");
+        up_load(6);                                  /* U07 a favourite again, then saved over (not erased): it stays */
+        fav_toggle(1);
+        TSEL->p[P_LEVEL] += 4;
+        up_ui(2, 6);
+        check(up_used(6) && fav_has(FAV_USER | 6u) && fav[0] == 3 && fav[1] == 5 && fav[2] == 9 && fav[3] == (FAV_USER | 6u),
+              "U07 a favourite, saved over: still one (only an erase takes it out)");
+        /* a favourite an older SLOOP left behind (2.7 erased the slot, kept the entry: hidden, taking a place) */
+        fav[4] = (uint16_t)(FAV_USER | 9u);
+        check(!up_used(9) && fav_list(b) == 4u, "U10 empty, its favourite left behind by an older SLOOP: hidden");
+        TSEL->p[P_LEVEL] -= 2;                       /* a sound saved into U10 */
+        up_ui(2, 9);
+        check(up_used(9) && !fav_has(FAV_USER | 9u) && fav[4] == FAV_NONE && fav_list(b) == 4u,
+              "a new sound saved into U10: not a favourite (2.7.1)");
+        fav[4] = (uint16_t)(FAV_USER | 11u);         /* U12 empty, left behind too: power-on takes it out */
+        fav_dirty = 0;
+        up_boot();
+        check(fav[3] == (FAV_USER | 6u) && fav[4] == FAV_NONE && fav_dirty, "power-on: U12's favourite left behind gone, U07's kept (2.7.1)");
+        /* a user bank restored from a backup by the editor (ed_bk_commit id 6, n 0: the bank empty), its lines as it runs
+         * them (editor.c is not in this harness): the bank written, read where it is now, its empty slots pruned */
+        fav_dirty = 0;
+        check(st_save(OBJ_UPRESET0, b, 0) == 0, "the user bank 1 restored empty");
+        up_bank_find(0);
+        up_fav_prune(0, UP_PER_BANK);
+        check(!up_used(6) && !fav_has(FAV_USER | 6u) && fav[2] == 9 && fav[3] == FAV_NONE && fav_dirty,
+              "the bank restored empty: U07 out of the favourites, the others kept (2.7.1)");
+    }
 
     printf(fails ? "persist: %d FAILED\n" : "persist: all ok\n", fails);
     return fails != 0;

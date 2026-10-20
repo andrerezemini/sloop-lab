@@ -192,11 +192,21 @@ UI_SMALL static void up_values(const up_rec_t *r, int16_t *v)   /* mapped and cl
         v[i] = (int16_t)clamp(v[i], up_desc(r->engine, i)->min, up_desc(r->engine, i)->max);
 }
 
+/* (2.7.1 fix) an empty slot is no favourite: slots k .. k + n - 1 that hold nothing leave the favourites (ui.c fav) */
+UI_SMALL static void up_fav_prune(uint32_t k, uint32_t n)
+{
+    for (; n; n--, k++)
+        if (!up_used(k))
+            fav_drop(FAV_USER | k);
+}
+
 UI_SMALL static void up_boot(void)                      /* persist_boot: the banks, where they are in the flash */
 {
     uint32_t b;
     for (b = 0; b < UP_SLOTS / UP_PER_BANK; b++)
         up_bank_find(b);
+    up_fav_prune(0, UP_SLOTS);                          /* (the favourites, read before: an older SLOOP's erase kept
+                                                         * them, hidden but taking a place) */
 }
 
 /* record k = *r (0: erase), then the bank to flash: 0 ok, 2 flash error, 3 no flash (nothing kept: there is no
@@ -205,7 +215,7 @@ UI_SMALL static int up_put(uint32_t k, const up_rec_t *r)
 {
     uint32_t b = (k / UP_PER_BANK) % NELEM(up_bank_xip), i;
     up_bank_t *bk = (up_bank_t *)up_stage();
-    int rc = 3;
+    int rc = 3, was = up_used(k);
     if (up_bank_xip[b])
         memcpy(bk, up_bank_xip[b], sizeof *bk);
     else
@@ -227,6 +237,9 @@ UI_SMALL static int up_put(uint32_t k, const up_rec_t *r)
         rc = st_save(OBJ_UPRESET0 + b, bk, sizeof *bk) ? 2 : 0;
 #endif
     up_bank_find(b);
+    if (!was || !up_used(k))
+        fav_drop(FAV_USER | k);                         /* (2.7.1 fix) a slot erased, or empty before, is no favourite:
+                                                         * the next sound saved there showed up as one (ui.c fav) */
     return rc;
 }
 

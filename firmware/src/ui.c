@@ -562,7 +562,8 @@ UI_SMALL static const char *base_kind(uint32_t n) { return n < NBANK ? BANK_KIND
 
 /* SLOOP 2.7: favourites (PRESETS page, KNOB 4): up to 16 sounds at the top of the PRESETS list, kept in the FM-1's
  * settings (project.c, the settings' side record). An entry: a factory sound, its BANK index; a user preset, FAV_USER |
- * its slot (an erased one is left out of the list). Program Change keeps the list without them (pc_poll) */
+ * its slot, while the slot holds a sound (2.7.1: an empty slot leaves them, upreset.c up_put, up_fav_prune; one still
+ * here is left out of the list). Program Change keeps the list without them (pc_poll) */
 #define FAV_N 16u
 #define FAV_NONE 0xFFFFu
 #define FAV_USER 0x8000u
@@ -607,6 +608,20 @@ UI_SMALL static int fav_has(uint32_t key)
             return 1;
     return 0;
 }
+UI_SMALL static int fav_drop(uint32_t key)                    /* key out of the favourites, the order kept; 1: it was in */
+{
+    uint32_t i;
+    for (i = 0; i < FAV_N && fav[i] != key; i++)
+        ;
+    if (i == FAV_N)
+        return 0;
+    for (; i + 1u < FAV_N; i++)
+        fav[i] = fav[i + 1u];
+    fav[FAV_N - 1u] = FAV_NONE;
+    fav_at = -1;
+    fav_dirty = 1;
+    return 1;
+}
 UI_SMALL static void fav_toggle(int add)                      /* KNOB 4 on the PRESETS page: right adds, left removes */
 {
     uint32_t key = fav_key(), i;
@@ -626,14 +641,8 @@ UI_SMALL static void fav_toggle(int add)                      /* KNOB 4 on the P
         fav[i] = (uint16_t)key;
         ui_message("FAV ADDED");
     } else {
-        for (i = 0; i < FAV_N && fav[i] != key; i++)
-            ;
-        if (i == FAV_N)
+        if (!fav_drop(key))
             return;
-        for (; i + 1u < FAV_N; i++)                  /* (the order kept) */
-            fav[i] = fav[i + 1u];
-        fav[FAV_N - 1u] = FAV_NONE;
-        fav_at = -1;
         ui_message("FAV REMOVED");
     }
     fav_dirty = 1;

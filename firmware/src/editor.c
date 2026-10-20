@@ -494,6 +494,7 @@ UI_SMALL static uint32_t ed_bk_commit(void)
         if (!flash_ok || st_save(OBJ_UPRESET0 + id - 6u, raw, n))
             return 4;
         up_bank_find(id - 6u);                            /* (the bank is read where it is now) */
+        up_fav_prune((id - 6u) * UP_PER_BANK, UP_PER_BANK);   /* (2.7.1 fix: its empty slots are no favourites) */
         up_gen++;
         return 0;
     }

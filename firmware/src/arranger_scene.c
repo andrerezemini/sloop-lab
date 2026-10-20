@@ -35,6 +35,7 @@ static void arrangement_apply(uint32_t scene)
         track_t *t = &trk[k];
         seq_release(t);
         kh_release(t);                            /* (2.7: KBD HOLD's notes, and their MIDI note-offs) */
+        arp_end(t);                               /* (2.7.1 fix) the arp's sounding notes, and their MIDI note-offs */
         trk_all_off(t);
         t->nheld = t->arp_phys = t->arp_note = t->rh_n = t->rskip_n = 0;
         t->arp_ch[0] = t->arp_ch[1] = t->arp_ch[2] = 0;

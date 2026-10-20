@@ -2007,6 +2007,67 @@ static void t_clkout_bar(void)
     mi_r = mi_w;
 }
 
+/* 2.7.1: a live section change (A-D, on the next bar) while a note of the arp sounds: its MIDI OUT note-off goes out
+ * there, as KBD HOLD's does (arranger_scene.c arrangement_apply, a song's scene too). Up to 2.7.1 the section cleared
+ * the arp's note without ending it: with MIDI = SEQ it stayed on at the other end until STOP */
+static void t_arp_section(void)
+{
+    track_t *t = &trk[0];
+    uint8_t cfg = usb.config, eng[NPART];
+    uint32_t k, n, on = 0, ok;
+    int8_t last;
+    for (k = 0; k < NPART; k++)
+        eng[k] = trk[k].eng_req;
+    mf_prep();
+    usb.config = 1;
+    song.sel = 0, song.g[G_MIDI] = 1;               /* MIDI = SEQ: the arp's notes go out */
+    t->p[P_AMODE] = AM_UP, t->p[P_AOCT] = 3, t->p[P_APROB] = 127, t->p[P_AGATE] = 127;
+    t->p[P_ARATE] = 0;                              /* 1/4: a note's gate runs over the bar line */
+    for (k = 0; k < NTRK; k++)
+        trk[k].p[P_SLEN] = 16, trk[k].p[P_SDIV] = 2;
+    proj_capture(&proj_slot[0]), proj_capture(&proj_slot[1]);   /* A and B */
+    proj_slot[2].magic = proj_slot[3].magic = 0;
+    live_sec = 0, arrangement_enabled = 0;
+    transport_req = 1;
+    mo_r = mo_w;
+    memset(a0_on, 0, sizeof a0_on), memset(a0_off, 0, sizeof a0_off);
+    a0_run(1);
+    while (!((clk_beat & 3u) == 3u && clk_pos > BEAT_U / 3u))
+        a0_run(1);                                  /* beat 4.33: the arp's first note at once, off the grid */
+    live_req = 1;                                   /* B on the next bar */
+    mf_on(0, 60), mf_on(0, 64);
+    last = live_sec;
+    for (k = 0; k < 8000u && live_sec == last; k++) {
+        for (n = 0, on = 0; n < 128u; n++)
+            on += a0_on[n] > a0_off[n];
+        a0_run(1);
+    }
+    ok = live_sec == 1 && on == 1u;                 /* (B came with a note of the arp on) */
+    a0_run(10);
+    mf_off(0, 60), mf_off(0, 64);
+    a0_run(2000);                                   /* still playing: no STOP */
+    ok &= song.playing && !gates(t, 200);
+    for (n = 0; n < 128u; n++)
+        ok &= a0_on[n] == a0_off[n];
+    check(ok, "2.7.1: a section change with an arp note on: its MIDI OUT note-off goes out then, not at STOP");
+    transport_req = 2;
+    a0_run(2);
+    usb.config = cfg;
+    song.g[G_MIDI] = 0;
+    t->p[P_AMODE] = 0, t->p[P_AOCT] = 1, t->p[P_AGATE] = 64, t->p[P_ARATE] = 2, t->nheld = 0, t->arp_phys = 0;
+    for (k = 0; k < 4u; k++)
+        proj_slot[k].magic = 0;
+    live_sec = -1;
+    for (k = 0; k < NPART; k++) {                   /* (as it was: engines, no voice) */
+        trk[k].eng_req = trk[k].engine = eng[k];
+        for (n = 0; n < NVOICE; n++)
+            trk[k].v[n].active = trk[k].v[n].gate = 0, trk[k].v[n].stage = 0;
+    }
+    run_block();
+    mo_r = mo_w;
+    mi_r = mi_w;
+}
+
 int main(void)
 {
     t_midich();
@@ -2045,6 +2106,7 @@ int main(void)
     t_chordplus();
     t_arp0();
     t_clkout_bar();
+    t_arp_section();
     printf("seq2: %s\n", fails ? "FAILED" : "all checks ok");
     return fails;
 }

@@ -74,8 +74,8 @@ run "punch-in FX: 27 effects (11 on the black keys), bounded, dry after release,
 $CC -O2 -w -Ibuild/gen -Ifirmware/src -o "$OUT/fx251_test" tests/fx251_test.c -lm
 run "after Felucca 1.4 / 1.5: INSERT, filter TYPE, ENV SYNC, LFO 2, drum mutes, MIDI LEARN" "$OUT/fx251_test"
 
-# synth: matrix/controller routing, filter and terrain reference, reverb models, build assets.
-for t in mod_test synth_dsp_test reverb_types_test; do
+# synth: matrix/controller routing, filter and terrain reference, reverb models, a part's effects under them, build assets.
+for t in mod_test synth_dsp_test reverb_types_test synth_fx_test; do
     $CC -O2 -w -Ibuild/gen -Ifirmware/src -o "$OUT/$t" "tests/$t.c" -lm
     run "synth: $t" "$OUT/$t"
 done

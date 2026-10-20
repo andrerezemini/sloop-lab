@@ -20,6 +20,9 @@ still pending. No synth image has been flashed as part of this implementation.
   sample-and-hold, slew and LFO 2. Destinations include pitch, cutoff, shape,
   amplitude, pan, distortion, sends, LFO rate/depth, vibrato, continuous engine
   parameters, velocity and gate time. Enumerated engine choices are excluded.
+  A distortion that is on stays on under modulation (at least 1: 0 is the
+  drive off, and coming back on re-seeds its filters). DIST 1 still drives;
+  from DIST 0 a positive amount switches the drive on and off (a step each time).
   TIME changes note length, not the transport grid.
 - **LFO 2:** independent RATE, WAVE, SYNC and PHS controls, selected as a matrix
   source. RATE 0 disables it. The former sync page is named LFO SYNC.

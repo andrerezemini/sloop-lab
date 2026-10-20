@@ -106,7 +106,10 @@ static __attribute__((noinline)) void mod_begin(track_t *t)
     for (j = 0; j < ni; j++) {
         uint32_t id = ids[j];
         const param_desc_t *pd = mod_desc(t, pm, id);
-        pm[id] = (int16_t)clamp(pm[id]+offsets[j], pd->min, pd->max);
+        /* DIST 0 is the drive off (fx.c track_dist), and coming back on re-seeds its low cut and tone: a DIST that is
+         * on stays on under modulation (1 at the least), or a source swinging it through 0 thumps every half cycle */
+        int32_t lo = id == P_DIST && pm[id] > 0 ? 1 : pd->min;
+        pm[id] = (int16_t)clamp(pm[id]+offsets[j], lo, pd->max);
     }
 }
 static __attribute__((noinline)) void mod_voice(track_t *t, voice_t *v, vmod_t *m, int32_t lfo)

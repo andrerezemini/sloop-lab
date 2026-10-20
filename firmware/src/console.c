@@ -271,7 +271,8 @@ static void con_params(void)
 static void con_exec(const char *p)
 {
     if (con_word(&p, "help") || con_word(&p, "?"))
-        con_puts("status  dbg  crash  params  memr ADDR [LEN]  flr OFF [LEN]  cpu1 units MASK|auto  cpu1 late  uboot yes\r\n");
+        con_puts("status  dbg  crash  params  memr ADDR [LEN]  flr OFF [LEN]  cpu1 units MASK|auto  cpu1 late  cpu1 fault"
+                 "  fault yes  uboot yes\r\n");
     else if (con_word(&p, "status"))
         con_status();
     else if (con_word(&p, "dbg"))
@@ -290,6 +291,13 @@ static void con_exec(const char *p)
                                                          * one core until power-off, as after a real one) */
             cpu1_late_test = 1;
             con_puts("cpu1: the next job runs late\r\n");
+            return;
+        }
+        if (con_word(&p, "fault")) {                     /* (after 2.7.1) the next job goes past core 1's stack (fx.c
+                                                         * cpu1_deep): its stack limit, the fault park in RAM and the
+                                                         * hold, tried on the FM-1 (then one core until power-off) */
+            cpu1_fault_test = 1;
+            con_puts("cpu1: the next job goes past its stack\r\n");
             return;
         }
         if (con_word(&p, "units")) {
@@ -311,6 +319,16 @@ static void con_exec(const char *p)
     else if (con_word(&p, "flr"))
         con_flr(p);
 #endif
+    else if (con_word(&p, "fault")) {                    /* (after 2.7.1) fault yes: a fault on core 0 on purpose, a write into
+                                                         * the stack guard band (fm1_guard.h): the crash screen, its restart
+                                                         * (fm1_reboot, not the watchdog) and, with 2 CORES, one core after it */
+        if (con_word(&p, "yes")) {
+            con_puts("fault: writing the stack guard band\r\n");
+            fm1_guard_test_write();
+        } else {
+            con_puts("type 'fault yes'\r\n");
+        }
+    }
     else if (con_word(&p, "uboot")) {
         if (con_word(&p, "yes")) {
             con_puts("entering UBOOT\r\n");

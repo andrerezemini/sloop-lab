@@ -105,17 +105,20 @@ passed its self-test, **1 CORE** otherwise; the serial console (MENU > AUDIO > U
 serial terminal on the USB port, e.g. `screen /dev/tty.usbmodem* 115200`, and `status`) prints `lowram` (1: the SRAM
 below the RAM region took and gave back a pattern at boot, word by word; 2: it did not, and this build must not be
 used), `stack_free` and `sstack_free` (bytes of core 0's main and supervisor stacks never reached since boot: the
-24 KB and 8 KB of `app.ld` were never measured; `sp` says which one the main loop runs on), `cpu1` (0 not built,
-1 did not report in within 20 ms, 2 answered wrong or late, 3 running), `cpu1_trace` (0xC1000001: reached
+24 KB and 8 KB of `app.ld` were never measured; `sp` says which one the main loop runs on), `cpu1` (0 not started: not
+built, 2ND CORE OFF, or barred (`cpu1_why` 5 or 6); 1 did not report in within 20 ms, 2 answered wrong or late, or held
+since, 3 running), `cpu1_trace` (0xC1000001: reached
 its entry; 0xC1000002: reached its loop; 0xC1DEADvv: it faulted on vector vv and parked), `cpu1_timeouts` (blocks
-core 1 did not finish in 4 ms, or that it read wrong: after the first, it is held and SLOOP runs on one core),
+core 1 did not finish in 4 ms, read wrong or faulted in: after the first, it is held and SLOOP runs on one core),
 `cpu1_why` (why it was held: 1 late, 2 its stack (the red zone, or its stack limit trapped), 3 a fault, 4 a wrong
 read, or a self-test answered wrong; why it was not started: 5 barred after a hold or a crash while it ran, until power-off, 6 the boot before
 failed), `cpu1_fault_pc` and `cpu1_fault_emu` (where it faulted, and its EMU_MSG then: bit 0 misaligned, 1 illegal,
 3 its stack limit), `cpu1_bad` (jobs it refused: a wrong read), `cpu1_busflags_cut` and `cpu1_busflags`
 (bus-invalid flags right after a hold, and after core 0's writes that followed it), `crash` (the last crash
 record, with `dbg`: DBG_MSG, a bus or PC-limit flag),
-`cpu1_units` (`cpu1 units MASK|auto` sets it live; `cpu1 late` makes the next job late on purpose), `cpu1_busy_pct`
+`cpu1_units` (`cpu1 units MASK|auto` sets it live; `cpu1 late` makes the next job late on purpose, `cpu1 fault` makes
+it go past core 1's stack, `fault yes` makes core 0 fault: device tests of the hold, the fault park and the crash
+screen), `cpu1_busy_pct`
 and `cpu1_wait_pct` (core 1's share of a half spent rendering, core 0's share spent waiting for it) and
 `cpu1_stack_free` (bytes of core 1's 2,816 B stack the render never reached: it must stay above 256 on the
 heaviest patterns; below that core 1 is held, its stack limit and the per-half check). With 2 CORES the last synth part and the drums render on core 1; the audio is bit for bit
@@ -167,10 +170,11 @@ What a stalled, misreading or faulting core 1 does, and what the render does abo
   latches late traps with the crash screen's core 1 line right.
 - **One core after a failure**: core 1 held for good, or a crash while it ran, in a job or between jobs (as X0X
   1.0.9: fm1-x0x#21's misreads come with both cores running, core 0's too): the next warm boots start one core until
-  the FM-1 is switched off (`.noinit`, cleared at a power-on); a boot that died in its first 30 s: the next boot only
+  the FM-1 is switched off (`.noinit`, cleared at a power-on and by an update, whose core reset reads as a power-on);
+  a boot that died in its first 30 s: the next boot only
   (as Felucca 1.6.1). The player sees "2ND CORE STOPPED" when it is held while playing, "1 CORE: AFTER A CRASH" on a
   boot that does not start it. X0X 1.0.9 and Felucca 1.6.1 go further and save 2ND CORE OFF in the settings.
-- **Not done** (diagnostics, or by choice): a hang the watchdog resets does not bar core 1 (the update loader ends
+- **Not done** (diagnostics, or by choice): a hang the watchdog resets does not bar core 1 (a stuck update loader ends
   that way too, and the boot guard covers a hang in a boot's first 30 s); core 1's ETM is not enabled, and the AXI
   invalid-access IDs are not recorded, so an AXI bus error raised on core 0 does not name its master.
 

@@ -898,10 +898,32 @@ static void cpu1_load_half(uint32_t half_us)
  * finished is not rendered again, which would run its SLICER step clock and its LFO 2 a block ahead until the next PLAY */
 static volatile uint32_t cpu1_units_done;
 
+#if FELUCCA_CDC
+/* (after 2.7.1, the console's "cpu1 fault") a frame deeper than core 1's whole stack (2,816 B): its EMU stack limit
+ * traps at once (fm1_c1_fault parks it, cpu1_why 2 with cpu1_fault_emu bit 3); without it, the frame written top down
+ * covers the stack's end, the red zone and some of the free SRAM below (app.ld), and the per-half check holds it
+ * (cpu1_why 2, cpu1_fault_emu 0) */
+static void __attribute__((noinline)) cpu1_touch(uint8_t *b, uint32_t n, uint32_t x)
+{
+    uint32_t i;
+    for (i = n; i--;)                                   /* from the top down, as a real overflow writes */
+        b[i] = (uint8_t)x;
+}
+static void __attribute__((noinline)) cpu1_deep(uint32_t x)
+{
+    uint8_t big[3072];
+    cpu1_touch(big, sizeof big, x);                     /* (its address escapes: the whole frame is there) */
+}
+#endif
+
 static void cpu1_units_job(uint32_t arg)                /* core 1's job: the units of arg & 0xFF, n = arg >> 8 */
 {
     uint32_t t0 = cpu1_ticks(), k;
 #if FELUCCA_CDC
+    if (cpu1_fault_test && cpu1_on()) {
+        cpu1_fault_test = 0;
+        cpu1_deep(arg);
+    }
     if (cpu1_late_test && cpu1_on()) {                  /* (after 2.7.1, the console's "cpu1 late") this job late, writing what
                                                          * core 0 writes again after the hold (acc[1], cleared by the late path
                                                          * whatever the units; part_buf[1], when a part is among them): held in

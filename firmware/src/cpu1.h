@@ -16,6 +16,8 @@ static int cpu1_on(void);
 static void cpu1_late_end(void);   /* (after 2.7.1) after cpu1_wait's -1 and the job run here: the hold's traps back on */
 static volatile uint8_t cpu1_late_test;   /* (after 2.7.1, the console's "cpu1 late", FELUCCA_CDC builds) the next job
                                            * runs late: the hold of a busy core 1, tried on the device */
+static volatile uint8_t cpu1_fault_test;  /* (after 2.7.1, the console's "cpu1 fault", FELUCCA_CDC builds) the next job
+                                           * goes past core 1's stack: its stack limit and the fault park, tried */
 /* the render units core 1 gets (fx.c units_split): -1 the firmware's share (the last part and the drums), else a
  * mask of them, bit k = synth part k, bit NPART = the drums; 0 = none (the menu's 2ND CORE OFF, the tests:
  * CPU1_UNITS=mask in the host double). Whatever the value, the output is the same, bit for bit */

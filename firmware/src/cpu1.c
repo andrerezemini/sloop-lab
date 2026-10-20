@@ -17,9 +17,10 @@ static uint8_t cpu1_why;                                 /* why it was held for 
                                                           * 6 the boot before died in its first 30 s (console, crash screen) */
 /* (after 2.7.1) one core until the FM-1 is switched off, after core 1 was held for good or a crash came while it ran
  * (main.c fm1_fault, as X0X 1.0.9: in a job or between jobs, fm1-x0x#21's misreads come with both cores running): kept
- * in .noinit across warm resets (the crash screen's, an update's), cleared by a power-on (main.c fm1_cstart, as the
- * boot guard). X0X 1.0.9 and Felucca 1.6.1 go further and save 2ND CORE OFF in the settings; here the next power-on
- * tries two cores again. A hang the watchdog resets does not bar it (the update loader ends that way too); the boot
+ * in .noinit across the crash screen's restart (fm1_reboot, a P33 soft reset), cleared by a power-on (main.c
+ * fm1_cstart, as the boot guard) and by an update (the loader's core reset leaves P3_RST_SRC as the power-on left it,
+ * 0x01: measured on an FM-1, so it reads as a power-on, for the boot guard too). X0X 1.0.9 and Felucca 1.6.1 go further and save 2ND CORE OFF in the settings; here the next power-on
+ * tries two cores again. A hang the watchdog resets does not bar it (a stuck update loader ends that way too); the boot
  * guard covers a hang in a boot's first 30 s. Not static, as fm1_crash (fm1_irq.h): a file-local
  * global only ever given one constant is folded into a byte flag, and any garbage byte would keep core 1 off */
 #define CPU1_BAR 0x43314241u                             /* "C1BA" */

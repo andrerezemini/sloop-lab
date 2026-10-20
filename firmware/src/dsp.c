@@ -138,6 +138,14 @@ static void ladder_seed(ladder_t *l, const ladder_coef_t *c, int32_t in)
     int32_t y = (int32_t)(((int64_t)clamp(in, -32768, 32767) * 256 * 32768) / (32768 + c->k));
     for (i = 0; i < 4u; i++) l->s[i] = y;
 }
+/* Every stage at y (Q23): the output carries on from y (fx.c track_filter_run: the SVF's output when the TYPE turns
+ * to LP24 under a note) and moves from there at the cutoff's pace */
+static void ladder_hold(ladder_t *l, int32_t y)
+{
+    uint32_t i;
+    y = clamp(y, -16777216, 16777216);
+    for (i = 0; i < 4u; i++) l->s[i] = y;
+}
 static void ladder_coef(ladder_coef_t *c, int32_t cut, int32_t reso)
 {
     int32_t i, g, g2, g4;

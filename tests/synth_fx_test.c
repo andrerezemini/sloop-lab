@@ -4,6 +4,9 @@
  *              (fx.c track_dist treats 0 as off and re-seeds when it comes back: a thump every half cycle)
  *   insert fade a sound loaded under a held note with an INSERT on: the 8 blocks of the fade play the old sound through
  *              the old INSERT (the render view), whatever INSERT the new sound has
+ *   tflt type  the track FILTER's TYPE switched SVF <-> LP24 under a note, under a sweep and over a closed cutoff:
+ *              each type starts where the other's output was (not the SVF's states of before the ladder took over,
+ *              not the input): no step bigger than the filters' own
  * Exit status: the number of failed checks. */
 #include <stdint.h>
 #define main hostsim_main
@@ -164,11 +167,60 @@ static void t_insert_fade(void)
           "a sound loaded under a held note: its fade plays through the old INSERT, bit for bit (B10)");
 }
 
+/* B11: the track FILTER's TYPE switched under a held note, four times (four phases of the note at the switches), RES 0
+ * on both types (TRES -40). The switch must leave no step bigger than the filters' own (the largest second difference
+ * of the steady sound on the SVF, then on LP24): each type starts where the other's output was. Before, the SVF came
+ * back on the states it had when the ladder took over, and the ladder started at rest on the input: right only while
+ * the filter passes the note. Two sounds: a sine well under the cutoff (-20) with a sweep to -40 and back on LP24 (the
+ * SVF's old states from another cutoff), and a saw at C5 at -60 (the filter closed on it, its usual sound) */
+static void tflt_switch(int wave, int note, int cut, int sweep, double *to24, double *back, double *own)
+{
+    static const uint16_t LADDER_BLOCKS[4] = {301, 304, 307, 310};
+    uint32_t a = 0, k;
+    double d;
+    setup();
+    trk[0].p[P_E0] = (int16_t)wave;
+    trk[0].p[P_TFLT] = (int16_t)cut, trk[0].p[P_TRES] = -40, trk[0].p[P_TFTYPE] = 0;
+    trk_note_on(&trk[0], note, 100);
+    render_at(a, 300), a += 300;
+    *own = d2_of((a - 100u) * CTL, a * CTL), *to24 = *back = 0;
+    for (k = 0; k < 4u; k++) {
+        uint32_t n = LADDER_BLOCKS[k];
+        trk[0].p[P_TFTYPE] = 1;
+        render_at(a, 4);
+        d = d2_of((a - 1u) * CTL, (a + 4u) * CTL), *to24 = d > *to24 ? d : *to24, a += 4;
+        trk[0].p[P_TFLT] = (int16_t)sweep;
+        render_at(a, n / 2u), a += n / 2u;
+        trk[0].p[P_TFLT] = (int16_t)cut;
+        render_at(a, n - 4u - n / 2u), a += n - 4u - n / 2u;
+        d = d2_of((a - 100u) * CTL, a * CTL), *own = d > *own ? d : *own;
+        trk[0].p[P_TFTYPE] = 0;
+        render_at(a, 4);
+        d = d2_of((a - 1u) * CTL, (a + 4u) * CTL), *back = d > *back ? d : *back, a += 4;
+        render_at(a, 56), a += 56;
+    }
+}
+static void t_tflt_type(void)
+{
+    double to24, back, own;
+    tflt_switch(3, 45, -20, -40, &to24, &back, &own);   /* SIN A2: 110 Hz, the cutoff some kHz above it */
+    printf("  track FILTER TYPE, a sine under a sweep: worst sample step SVF -> LP24 %.0f, LP24 -> SVF %.0f "
+           "(the filters' own %.0f)\n", to24, back, own);
+    check(to24 < 3.0 * own + 100.0 && back < 3.0 * own + 100.0,
+          "track FILTER TYPE SVF <-> LP24 under a sweep: each starts where the other was, no step (B11)");
+    tflt_switch(0, 72, -60, -60, &to24, &back, &own);   /* SAW C5 at -60: the filter closed on the note */
+    printf("  track FILTER TYPE, a saw over a closed cutoff: worst sample step SVF -> LP24 %.0f, LP24 -> SVF %.0f (the "
+           "filters' own %.0f)\n", to24, back, own);
+    check(to24 < 3.0 * own + 100.0 && back < 3.0 * own + 100.0,
+          "track FILTER TYPE SVF <-> LP24 over a closed cutoff: not from the input, no step (B11)");
+}
+
 int main(void)
 {
     setvbuf(stdout, 0, _IONBF, 0);
     t_dist_mod();
     t_insert_fade();
+    t_tflt_type();
     printf("synth fx: %s\n", fails ? "FAILED" : "all checks ok");
     return fails;
 }

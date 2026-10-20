@@ -31,8 +31,13 @@ two (zeroing them thumped on fast mono lines). The ladder returns Q23;
 and 8 out, so the track path keeps its resolution and ±2^20 of headroom.
 
 LP/BP/HP keep their original arithmetic. LP24 is appended as ANALOG TYPE 3;
-track TYPE 1 selects the ladder only on the low-pass side. The track resonance
-is an offset over the original 40, so zero retains the original filter.
+track TYPE 1 selects the ladder only on the low-pass side. A TYPE switched
+under a note starts each type where the other's output was: the ladder's four
+stages at the SVF's low-pass state, the SVF at rest on the ladder's last stage
+(19/10: the SVF came back on its states of before the ladder and the ladder
+started at rest on the input, a step as large as the signal at a closed
+cutoff). The track resonance is an offset over the original 40, so zero
+retains the original filter.
 
 Host acceptance (`tests/synth_dsp_test.c`, also run with UBSan):
 

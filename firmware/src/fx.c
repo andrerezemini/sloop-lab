@@ -783,15 +783,30 @@ static void track_filter_run(track_t *t, djf_t *f, const tsvf_t *legacy, int32_t
     if (ladder) {
         ladder_coef_t c;
         ladder_coef(&c, f->cut, clamp(40+p[P_TRES],0,127));
-        if (!(track_ladder_on[k] & (1u<<ch)) || (f->seed & (1u<<ch))) {
+        if (f->seed & (1u<<ch)) {                       /* the low-pass engaging from open: at rest on the signal */
             ladder_seed(&track_ladder[k][ch], &c, n ? clamp(b[0] >> 5, -32768,32767) : 0);
-            track_ladder_on[k] |= (uint8_t)(1u<<ch);
             f->seed &= (uint8_t)~(1u<<ch);
+        } else if (!(track_ladder_on[k] & (1u<<ch))) {  /* TYPE from the SVF: its output carries on (its low-pass
+                                                         * state, bus / 4, to Q23: x 4 x 8). Not the input: at a
+                                                         * low cutoff the filter's output is far from it (a step) */
+            ladder_hold(&track_ladder[k][ch], f->z[ch][1] * 32);
         }
+        track_ladder_on[k] |= (uint8_t)(1u<<ch);
         for (i=0;i<n;i++) b[i] = ladder_bus(&track_ladder[k][ch], &c, b[i]);
     } else {
         tsvf_t c;
-        track_ladder_on[k] &= (uint8_t)~(1u<<ch);
+        if (track_ladder_on[k] & (1u<<ch)) {            /* TYPE from LP24: the SVF's states are those of before the
+                                                         * ladder took over (another cutoff, another moment: a step).
+                                                         * At rest on the ladder's output (its last stage, Q23 to
+                                                         * bus / 4), as the ladder takes over the SVF's. On the
+                                                         * high-pass side djf_block cleared them (as ever); a pending
+                                                         * seed (from open) overrides this in djf_run */
+            track_ladder_on[k] &= (uint8_t)~(1u<<ch);
+            if (f->mode < 0) {
+                f->z[ch][0] = 0;
+                f->z[ch][1] = clamp((track_ladder[k][ch].s[3] + 16) >> 5, -140000, 140000);
+            }
+        }
         if (p[P_TRES]) { tsvf_coef(&c, f->cut, clamp(40+p[P_TRES],0,127)); legacy=&c; }
         tflt_run(f, legacy, b, n, ch);
     }

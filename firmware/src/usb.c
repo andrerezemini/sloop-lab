@@ -816,7 +816,8 @@ static void midi_in_event(uint32_t pkt)
     if (cin >= 8u && cin <= 0xEu && (st >> 4) == cin && !((pkt >> 16) & 0x80u) &&
         (cin == 0xCu || cin == 0xDu || !(pkt & 0x80000000u))) {
         if (mi_w - mi_r < MQ) {
-            midi_in_q[mi_w % MQ] = pkt;
+            midi_in_q[mi_w % MQ] = pkt & ~0xF0u;      /* (2.7.1 fix) cable 0, as the clock: 1 is the TRS jack's (seq.c
+                                                       * remote_cc), whatever cable the host sent */
             RING_PUBLISH();
             mi_w++;
         }

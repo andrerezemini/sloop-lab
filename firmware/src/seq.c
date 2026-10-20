@@ -1425,15 +1425,18 @@ static void drum_input(uint32_t lane, uint32_t lvl, uint32_t rat, int rec);
 /* SLOOP 2.7, GLO > MIDI 3 > REMOTE: on that channel CC 102 + k (64 and above: down, below: up) holds button k, in the
  * order FX SEL ENV LFO EDIT GLO HOME SAVE ARP SEQ PLAY REC OCT- OCT+ (panel.c B_*). Kept here by label (the audio ISR);
  * the UI turns them into the panel's buttons (ui_input.c remote_poll). An up waits until the down was seen, so a tap
- * sent as two messages at once is still a tap */
+ * sent as two messages at once is still a tap. (2.7.1 fix) trs: it came from the jack (cable 1), whose active sensing
+ * can let go of what it holds */
 #define REMOTE_CC0 102u
 static volatile uint32_t remote_lbl, remote_up;   /* labels held, labels let go (not yet seen down) */
-static void remote_cc(uint32_t k, uint32_t value)
+static volatile uint32_t remote_trs;              /* (2.7.1 fix) labels held from the TRS jack */
+static void remote_cc(uint32_t k, uint32_t value, uint32_t trs)
 {
     uint32_t bit = 1u << k;
     if (value >= 64u) {
         remote_lbl |= bit;
         remote_up &= ~bit;
+        remote_trs = trs ? remote_trs | bit : remote_trs & ~bit;
     } else if (remote_lbl & bit) {
         remote_up |= bit;
     }
@@ -3005,7 +3008,7 @@ static void events_block(uint32_t n)
         }
         if (song.g[G_RMCH] && ch == (uint32_t)song.g[G_RMCH] - 1u && st == 0xB0u && d1 >= REMOTE_CC0 &&
             d1 < REMOTE_CC0 + 14u) {                  /* 2.7: REMOTE (GLO > MIDI 3): the buttons over MIDI */
-            remote_cc(d1 - REMOTE_CC0, d2);
+            remote_cc(d1 - REMOTE_CC0, d2, pkt & 0xF0u);
             continue;
         }
         if (song.g[G_FXCH] && ch == (uint32_t)song.g[G_FXCH] - 1u && song.g[G_ROUTE] != 1 &&

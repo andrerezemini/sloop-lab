@@ -53,6 +53,8 @@
 #endif
 #if FELUCCA_UART
 #include "midi_uart.c"
+#else
+static int um_sense_lost(void) { return 0; }   /* (no TRS input: ui_input.c remote_poll) */
 #endif
 #define FELUCCA_ARRANGER 1
 #include "arranger.c"

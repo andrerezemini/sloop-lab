@@ -10,6 +10,7 @@
 #define FELUCCA_OTA 1
 #define FELUCCA_CDC 0
 static void fm1_delay_ms(uint32_t ms) { (void)ms; }
+static volatile uint32_t fm1_ms;                 /* (core.h: the milliseconds the parser stamps, 2.7.1) */
 #pragma GCC diagnostic ignored "-Wint-to-pointer-cast"   /* SIE register macros (never touched here) */
 #include "../firmware/src/usb.c"
 #include "../firmware/src/midi_uart.c"
@@ -137,7 +138,7 @@ static int test_uart_ring(void)
     dma_put(pad, sizeof pad);
     um_drain();
     bad += check("uart ring: a burst's last message (note-off) at once",
-                 mi_w - mi_r == 5u && midi_in_q[(mi_w - 1u) % MQ] == 0x003A8008u && ring_clean());
+                 mi_w - mi_r == 5u && midi_in_q[(mi_w - 1u) % MQ] == 0x003A8018u && ring_clean());
     mi_r = mi_w;
 
     ok = 1;                                           /* byte by byte, many times round the ring */
@@ -149,7 +150,7 @@ static int test_uart_ring(void)
             if (i == 2u)
                 ok &= mi_w == w0 + 1u;                /* the note-on with its third byte */
         }
-        ok &= mi_w == w0 + 5u && midi_in_q[(mi_w - 1u) % MQ] == 0x003A8008u && um.rd == dma_w;
+        ok &= mi_w == w0 + 5u && midi_in_q[(mi_w - 1u) % MQ] == 0x003A8018u && um.rd == dma_w;
         mi_r = mi_w;
     }
     bad += check("uart ring: byte-by-byte arrival across the wrap", ok && ring_clean());
@@ -159,10 +160,66 @@ static int test_uart_ring(void)
     ok = mi_w - mi_r == 1u && um.rd != dma_w;        /* the stray byte waits for its successor */
     dma_put((const uint8_t[]){0x80, 0x3C, 0x00}, 3);
     um_drain();
-    ok &= mi_w - mi_r == 2u && midi_in_q[(mi_w - 1u) % MQ] == 0x003C8008u && um.rd == dma_w;
+    ok &= mi_w - mi_r == 2u && midi_in_q[(mi_w - 1u) % MQ] == 0x003C8018u && um.rd == dma_w;
     bad += check("uart ring: a received FD is skipped, not taken for empty", ok && ring_clean());
     mi_r = mi_w;
     return bad;
+}
+
+/* 2.7.1 fix: active sensing on the jack (um_sense_lost, ui_input.c remote_poll): armed by FE, lost once when a read of
+ * the ring (um_drain, the TIMER5 poll) has found more than 330 ms without a byte, any byte keeps it; never without FE;
+ * after it is lost, as without until FE comes again. The silence is the reads': bytes that wait in the ring unread
+ * (the IRQs off for a flash erase, 45 ms to 400 ms) are no silence */
+static void sense_poll(uint32_t ms, const uint8_t *p, uint32_t n)   /* ms later: the bytes landed, the ring read */
+{
+    fm1_ms += ms;
+    dma_put(p, n);
+    um_drain();
+}
+static int test_uart_sense(void)
+{
+    static const uint8_t FE = 0xFE, CLK = 0xF8, ON[] = {0x90, 60, 100}, OFF[] = {0x80, 60, 0};
+    uint32_t k;
+    int ok = 1, ok2 = 1;
+    memset(&um, 0, sizeof um);
+    dma_w = 0;
+    fm1_ms = 1000;
+    sense_poll(0, ON, 3);                             /* no FE: a long silence is nothing */
+    sense_poll(5000, 0, 0);
+    ok &= !um_sense_lost();
+    sense_poll(0, &FE, 1);
+    for (k = 0; k < 10u; k++) {                       /* a byte every 300 ms (FE, a clock): alive */
+        sense_poll(300, 0, 0);
+        ok &= !um_sense_lost();
+        sense_poll(0, k & 1u ? &FE : &CLK, 1);
+    }
+    for (k = 0; k < 331u; k++) {                      /* then polls every ms: lost at 331 ms, once */
+        sense_poll(1, 0, 0);
+        ok &= um_sense_lost() == (k == 330u);
+    }
+    ok &= !um_sense_lost();
+    sense_poll(0, OFF, 3);                            /* then a sender without FE: never */
+    sense_poll(5000, 0, 0);
+    ok &= !um_sense_lost();
+    sense_poll(0, &FE, 1);                            /* FE again: armed again */
+    sense_poll(400, 0, 0);
+    ok &= um_sense_lost();
+    sense_poll(0, &FE, 1);                            /* the IRQs off 400 ms, an FE landed 300 ms in: no read yet */
+    fm1_ms += 300;
+    dma_put(&FE, 1);
+    fm1_ms += 100;
+    ok2 &= !um_sense_lost();
+    sense_poll(0, 0, 0);                              /* the read takes it: alive */
+    ok2 &= !um_sense_lost();
+    fm1_ms += 400;                                    /* the IRQs off 400 ms, nothing came: lost at the read */
+    ok2 &= !um_sense_lost();
+    sense_poll(0, 0, 0);
+    ok2 &= um_sense_lost();
+    mi_r = mi_w;
+    memset(&um, 0, sizeof um);
+    dma_w = 0;
+    return check("uart: active sensing: lost after 330 ms quiet (once), never without FE", ok) +
+           check("uart: active sensing: the silence is the ring's reads' (IRQs off 400 ms)", ok2);
 }
 
 /* EP1 OUT (USB-MIDI from the computer): back-pressure instead of drops, malformed events ignored */
@@ -200,6 +257,15 @@ static int test_usb_ep1(void)
                      midi_in_q[(w0 + 3u) % MQ] == 0x0005C00Cu);
     }
     mi_r = mi_w;
+    w0 = mi_w;
+    {   /* (2.7.1 fix) a channel message on another cable is queued as cable 0: cable 1 is the TRS jack's (seq.c remote_cc) */
+        static const uint8_t m[] = {0x19, 0x90, 61, 100, 0x5B, 0xB0, 7, 0};
+        n = ep1_take(m, sizeof m);
+        bad += check("usb ep1: channel messages on cables 1, 5 queued as cable 0",
+                     n == 1u && mi_w == w0 + 2u && midi_in_q[w0 % MQ] == 0x643D9009u &&
+                     midi_in_q[(w0 + 1u) % MQ] == 0x0007B00Bu);
+    }
+    mi_r = mi_w;
     return bad;
 }
 
@@ -213,8 +279,8 @@ int main(void)
         0xB0, 7, 0x7F, 0xF2, 1, 2, 9, 9, /* CC, song position (dropped), data without status */
         0x80, 60, 0,
     };
-    static const uint32_t want[] = {
-        0x643C9009u, 0x653E9009u, 0x0000F81Fu, 0x66409009u, 0x0005C10Cu, 0x0006C10Cu, 0x7F07B00Bu, 0x003C8008u,
+    static const uint32_t want[] = {   /* (after 2.7.1: cable 1, the jack's, as its clock; up to 2.7.1: cable 0) */
+        0x643C9019u, 0x653E9019u, 0x0000F81Fu, 0x66409019u, 0x0005C11Cu, 0x0006C11Cu, 0x7F07B01Bu, 0x003C8018u,
     };
     uint32_t i, bad = 0, n = sizeof want / sizeof want[0];
     for (i = 0; i < sizeof in; i++)
@@ -229,19 +295,20 @@ int main(void)
             bad = 1;
         }
     bad += (uint32_t)check("uart: running status, realtime, SysEx, system common", !bad);
-    {   /* 4-track routing reads the channel from the packet as for USB-MIDI: cable 0, CIN = status >> 4 */
+    {   /* 4-track routing reads the channel from the packet as for USB-MIDI: cable 1 (after 2.7.1), CIN = status >> 4 */
         static const uint8_t chs[] = {0x90, 60, 1, 0x91, 61, 2, 0x92, 62, 3, 0x99, 36, 4, 0x9F, 63, 5, 0x89, 36, 0};
         uint32_t w0 = mi_w, ok = 1;
         for (i = 0; i < sizeof chs; i++)
             um_byte(chs[i]);
         for (i = 0; i < 6u; i++) {
             uint32_t pkt = midi_in_q[(w0 + i) % MQ], st = chs[3u * i];
-            ok &= mi_w == w0 + 6u && (pkt & 0xFFu) == (st >> 4) && ((pkt >> 8) & 0xFFu) == st &&
+            ok &= mi_w == w0 + 6u && (pkt & 0xFFu) == (0x10u | st >> 4) && ((pkt >> 8) & 0xFFu) == st &&
                   ((pkt >> 16) & 0x7Fu) == chs[3u * i + 1u] && (pkt >> 24) == chs[3u * i + 2u];
         }
         bad += (uint32_t)check("uart: channels 1, 2, 3, 10, 16 -> USB-MIDI packets", ok);
     }
     bad += (uint32_t)test_uart_ring();
+    bad += (uint32_t)test_uart_sense();
     bad += (uint32_t)test_usb_ep1();
     bad += (uint32_t)test_usb_sysex();
     printf("%s\n", bad ? "MIDI PARSER TEST FAILED" : "midi parser test passed");

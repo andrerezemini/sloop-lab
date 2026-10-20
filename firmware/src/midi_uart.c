@@ -3,9 +3,9 @@
 /* MIDI IN on the TRS jack: PH8 -> input channel 1 -> UART1 RX, 31250 baud,
  * RX DMA into a 128-byte ring, polled from the TIMER5 ISR (no UART IRQ).
  * Built only with FELUCCA_UART=1. Channel messages go into midi_in_q next to
- * USB, as USB-MIDI packets (cable 0, CIN = status >> 4), so seq.c routes them by
+ * USB, as USB-MIDI packets (cable 1: the jack's, CIN = status >> 4; up to 2.7.1 cable 0), so seq.c routes them by
  * channel as it does USB; clock and transport (F8 FA FB FC) are queued with cable 1 (seq.c: SYNC TRS);
- * other realtime, system common and SysEx are dropped.
+ * other realtime, system common and SysEx are dropped. Active sensing (FE) only arms um_sense_lost (2.7.1 fix).
  *
  * The ring is read by content, not by the DMA count: every slot the parser has
  * not yet been given holds UM_EMPTY, and the reader takes bytes until it meets
@@ -21,7 +21,9 @@
 static volatile uint8_t um_ring[UM_RING] __attribute__((aligned(16)));
 static struct {
     uint32_t rd, bytes, drops, msgs;
+    uint32_t rx_ms, poll_ms;                       /* (2.7.1 fix) when the last byte was read, when the ring was (fm1_ms) */
     uint8_t st, need, got, d0, sysex;
+    uint8_t sense;                                 /* (2.7.1 fix) active sensing (FE) came: the sender keeps the line busy */
 } um;
 
 static void uart_midi_init(void)                   /* before timer5_start(): PORTH RMW */
@@ -39,7 +41,10 @@ static uint32_t um_len(uint32_t s)                 /* data bytes of a channel st
 
 static void um_byte(uint32_t b)
 {
+    um.rx_ms = fm1_ms;
     if (b >= 0xF8u) {                              /* realtime: the state is kept; clock and transport */
+        if (b == 0xFEu)
+            um.sense = 1;
         if ((b == 0xF8u || b == 0xFAu || b == 0xFBu || b == 0xFCu) && mi_w - mi_r < MQ) {
             midi_in_q[mi_w % MQ] = 0x1Fu | b << 8; /* (cable 1: from the TRS jack; seq.c mclk_event) */
             RING_PUBLISH();
@@ -63,7 +68,7 @@ static void um_byte(uint32_t b)
     }
     {
         uint32_t d1 = um.need == 2u ? um.d0 : b, d2 = um.need == 2u ? b : 0u;
-        uint32_t pkt = (um.st >> 4) | (uint32_t)um.st << 8 | d1 << 16 | d2 << 24;
+        uint32_t pkt = (um.st >> 4) | 0x10u | (uint32_t)um.st << 8 | d1 << 16 | d2 << 24;   /* (cable 1: the jack) */
         um.got = 0;
         if (mi_w - mi_r < MQ) {
             midi_in_q[mi_w % MQ] = pkt;
@@ -74,6 +79,20 @@ static void um_byte(uint32_t b)
             um.drops++;
         }
     }
+}
+
+/* (2.7.1 fix) MIDI 1.0's active sensing on the jack: a sender that sent FE sends a byte at least every 300 ms, so once
+ * it has, a longer silence means the cable is out or the sender is gone. 1 once when that happens (ui_input.c
+ * remote_poll: the buttons held from the jack let go), then as a sender without it until FE comes again. The silence
+ * is as of the last read of the ring, not now: with the IRQs off (a flash erase) the bytes wait in the ring unread,
+ * and that is no silence. The main loop, with the IRQ off */
+#define UM_SENSE_MS 330u
+static int um_sense_lost(void)
+{
+    if (!um.sense || (int32_t)(um.poll_ms - um.rx_ms) <= (int32_t)UM_SENSE_MS)
+        return 0;
+    um.sense = 0;
+    return 1;
 }
 
 /* the bytes the DMA has written since the last call; a received UM_EMPTY (line
@@ -93,6 +112,7 @@ static void um_drain(void)
         um.bytes++;
         um_byte(b);                                /* a UM_EMPTY is an unknown realtime byte: ignored */
     }
+    um.poll_ms = fm1_ms;                           /* (2.7.1 fix: read up to now, um_sense_lost) */
 }
 
 static void uart_midi_poll(void)                   /* TIMER5 ISR, same context as usb_poll */

@@ -839,10 +839,10 @@ int main(int argc, char **argv)
             int ok = 1;
             song.g[G_RMCH] = 16;
             remote_lbl = remote_up = 0;
-            remote_cc(B_PLAY, 127), remote_cc(B_HOME, 127);
+            remote_cc(B_PLAY, 127, 0), remote_cc(B_HOME, 127, 0);
             remote_poll();
             ok &= fm1_remote_btn == (pb | hb);
-            remote_cc(B_PLAY, 0);                     /* let go before the debounce saw it down: still held */
+            remote_cc(B_PLAY, 0, 0);                  /* let go before the debounce saw it down: still held */
             remote_poll();
             ok &= (fm1_remote_btn & pb) != 0u;
             fm1_in.buttons |= pb;                     /* (seen down) */
@@ -854,7 +854,7 @@ int main(int argc, char **argv)
             ok &= fm1_remote_btn == 0u && !remote_lbl;
             song.g[G_RMCH] = 16;                      /* another channel while one is held: let go */
             remote_poll();
-            remote_cc(B_HOME, 127);
+            remote_cc(B_HOME, 127, 0);
             remote_poll();
             ok &= fm1_remote_btn == hb;
             song.g[G_RMCH] = 15;
@@ -863,6 +863,69 @@ int main(int argc, char **argv)
             song.g[G_RMCH] = 0;
             remote_poll();
             check(ok, "REMOTE (2.7): the labels held over MIDI become the panel's buttons; a quick up waits for the down");
+        }
+        {   /* 2.7.1: REMOTE over the TRS jack, a sender with active sensing (FE) gone quiet (the cable out, the controller
+             * off): 330 ms later the buttons it held let go (REC held would clear a track); those held over USB stay; a
+             * sender without active sensing: as before (held until its up). The bytes come through um_byte; each 16 ms the
+             * ring is read (um_drain, the TIMER5 poll: um_sense_lost counts the silence as of the last read) */
+            static int32_t ab[CTL * 2];
+            uint32_t rb = BT(B_REC), hb = BT(B_HOME), keep = fm1_in.buttons, k;
+            int ok = 1, ok2 = 1;
+            for (k = 0; k < UM_RING; k++)
+                um_ring[k] = UM_EMPTY;                                /* (uart_midi_init: an empty ring) */
+            um.rd = 0;
+            song.g[G_RMCH] = 16;
+            remote_poll();
+            mi_r = mi_w;
+            um_byte(0xFE);                                            /* active sensing on the jack */
+            um_byte(0xBF), um_byte(REMOTE_CC0 + B_REC), um_byte(127); /* REC down from the jack (channel 16) */
+            midi_in_q[mi_w % MQ] = 0x0Bu | 0xBFu << 8 | (REMOTE_CC0 + B_HOME) << 16 | 127u << 24;   /* HOME down over USB */
+            mi_w++;
+            mix_block(ab, CTL);                                       /* (the audio ISR takes them: seq.c remote_cc) */
+            remote_poll();
+            ok &= fm1_remote_btn == (rb | hb);
+            fm1_in.buttons |= rb | hb;                                /* (the debounce saw them down) */
+            for (k = 0; k < 60u; k++) {                               /* ~1 s, FE every 240 ms (the last now): held */
+                fm1_ms += 16, um_drain();
+                if (k % 15u == 14u)
+                    um_byte(0xFE);
+                remote_poll();
+            }
+            ok &= fm1_remote_btn == (rb | hb);
+            for (k = 0; k < 18u; k++) {                               /* then nothing from the jack for 288 ms: held */
+                fm1_ms += 16, um_drain();
+                remote_poll();
+            }
+            ok &= fm1_remote_btn == (rb | hb);
+            for (k = 0; k < 4u; k++) {                                /* 352 ms: REC (the jack's) let go, HOME stays */
+                fm1_ms += 16, um_drain();
+                remote_poll();
+            }
+            ok &= fm1_remote_btn == hb;
+            midi_in_q[mi_w % MQ] = 0x0Bu | 0xBFu << 8 | (REMOTE_CC0 + B_HOME) << 16;    /* HOME up over USB */
+            mi_w++;
+            mix_block(ab, CTL);
+            remote_poll();
+            ok &= fm1_remote_btn == 0u;
+            fm1_in.buttons = keep;
+            um_byte(0xBF), um_byte(REMOTE_CC0 + B_REC), um_byte(127); /* no FE since: REC held from the jack, 2 s quiet */
+            mix_block(ab, CTL);
+            remote_poll();
+            fm1_in.buttons |= rb;
+            for (k = 0; k < 125u; k++) {
+                fm1_ms += 16, um_drain();
+                remote_poll();
+            }
+            ok2 &= fm1_remote_btn == rb;
+            um_byte(0xBF), um_byte(REMOTE_CC0 + B_REC), um_byte(0);   /* its up */
+            mix_block(ab, CTL);
+            remote_poll();
+            ok2 &= fm1_remote_btn == 0u;
+            fm1_in.buttons = keep;
+            song.g[G_RMCH] = 0;
+            remote_poll();
+            check(ok, "REMOTE (2.7.1): TRS with active sensing gone quiet 330 ms: its buttons let go, USB's stay");
+            check(ok2, "REMOTE (2.7.1): TRS without active sensing: a button held until its up, as before");
         }
         {   /* 2.7 beta: USB RATE, its knob in AUDIO (KNOB 3; KNOB 4 with USB SERIAL): AUTO 44.1 48, at the next start */
             int ok = usb_rate == 0u && !(lights_word() >> 28 & 3u);

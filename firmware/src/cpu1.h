@@ -21,8 +21,9 @@ static volatile uint8_t cpu1_late_test;   /* (after 2.7.1, the console's "cpu1 l
  * CPU1_UNITS=mask in the host double). Whatever the value, the output is the same, bit for bit */
 static int32_t cpu1_units = -1;
 /* (after 2.7.1) where a hold may stop core 1 in the middle of a job and leave a unit's state half written: the windows
- * the render must survive (fx.c mix_part's preset fade, voice.c's engine fade, the engines' caches). Nothing on the
- * FM-1; the host double (tests/cpu1_host.c) stops the job there, as fm1_cpu1_wait's hold does (tests/cpu1_hold_test.c) */
+ * the render must survive (fx.c mix_part's preset fade, voice.c's engine fade, the engines' caches, a unit done, a
+ * voice's end). Nothing on the FM-1; the host double (tests/cpu1_host.c) stops the job there, as fm1_cpu1_wait's hold
+ * does (tests/cpu1_hold_test.c) */
 #ifndef CPU1_HOLD_POINT
 #define CPU1_HOLD_POINT(site) ((void)0)
 #endif

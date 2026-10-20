@@ -184,8 +184,12 @@ static void con_status(void)
     con_kv("cpu1_why", (int32_t)cpu1_why);               /* held: 1 late, 2 its stack, 3 a fault, 4 a wrong read; not
                                                          * started: 5 barred after a hold or a crash, 6 a failed boot */
     con_kx("cpu1_fault_pc", fm1_c1_fault_pc);            /* where it faulted (cpu1_trace 0xC1DEADvv, vv the vector) */
+    con_kx("cpu1_fault_emu", fm1_c1_fault_emu);          /* (after 2.7.1) why: its EMU_MSG, bit 0 misaligned, 1 illegal, 3 its
+                                                          * stack limit (cpu1_why 2) */
     con_kv("cpu1_bad", (int32_t)fm1_c1_mb.bad);          /* jobs it would not run: a wrong read (fm1_cpu1.h) */
     con_kx("cpu1_busflags", fm1_c1_busflags);            /* bus-invalid flags a hold raised (DBG_MSG bits 4, 5, 16..21) */
+    con_kx("cpu1_busflags_cut", fm1_c1_busflags_cut);    /* (after 2.7.1) the same right after the hold, before core 0's
+                                                          * writes: the cut's own (hal/fm1_cpu1.h) */
     con_kv("cpu1_units", cpu1_units);                    /* the render units it gets: -1 its share, else a mask (fx.c) */
     con_kv("cpu1_busy_pct", (int32_t)(cpu1_busy_q8 * 100u / 256u));   /* its time in the render, of a half (fx.c) */
     con_kv("cpu1_wait_pct", (int32_t)(cpu1_wait_q8 * 100u / 256u));   /* core 0's time waiting for it */
@@ -246,6 +250,7 @@ static void con_crash(void)
     con_kx("pc", fm1_crash.pc);
     con_kx("rets", fm1_crash.rets);
     con_kx("emu", fm1_crash.emu);
+    con_kx("dbg", fm1_crash.dbg);                        /* (after 2.7.1) DBG_MSG: a bus or PC-limit flag (either core's) */
     con_kx("sp", fm1_crash.sp);
     con_kx("psr", fm1_crash.psr);
     con_kv("uptime_ms", (int32_t)fm1_crash.uptime_ms);

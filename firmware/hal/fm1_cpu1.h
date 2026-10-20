@@ -4,7 +4,7 @@
  * by the sloop-lab dualcore branch (github.com/andrerezemini/sloop-lab). Modified after 2.7.1 (sloop-lab
  * fix-core): the mailbox of X0X 1.0.5+ / Felucca 1.6.1 (Leo Kuroshita, Hügelton Instruments) with Jangada's
  * layout (zednaked, github.com/zednaked/jangada), Melodee's EMU guards for core 1, the fault park, the
- * stack check and the hold in two halves. */
+ * stack check, the hold in two halves and the seams of the host test (FM1_C1_IO, FM1_C1_SYNC). */
 /* The AC79's second core (docs/plans/2026-10-04-dual-core-and-clock.md), with what Melodee's
  * dual-core audio (github.com/keremimo/melodee, GPL-3.0) found on the device.
  *
@@ -30,10 +30,17 @@
 #pragma once
 #include <stdint.h>
 
-#define FM1_C1_CON (*(volatile uint32_t *)0x1EEE004u)
-#define FM1_C1_CLK (*(volatile uint32_t *)0x00010008u)
-#define FM1_C1_T4 (*(volatile uint32_t *)0x10804u)       /* TIMER4, 24 MHz */
+/* (after 2.7.1) the registers through FM1_C1_IO and csync through FM1_C1_SYNC: tests/cpu1_mailbox_test.c defines both
+ * and runs this file on the host, fm1_c1_main on a thread as core 1. The firmware's are these, the same code */
+#ifndef FM1_C1_IO
+#define FM1_C1_IO(a) (*(volatile uint32_t *)(a))
+#endif
+#define FM1_C1_CON FM1_C1_IO(0x1EEE004u)
+#define FM1_C1_CLK FM1_C1_IO(0x00010008u)
+#define FM1_C1_T4 FM1_C1_IO(0x10804u)                   /* TIMER4, 24 MHz */
+#ifndef FM1_C1_SYNC
 #define FM1_C1_SYNC() __asm__ volatile("csync" ::: "memory")
+#endif
 
 extern void fm1_c1_entry(void);
 extern uint32_t _c1_ustack[], _c1_red[], _c1_sstack_top[];
@@ -54,6 +61,8 @@ static fm1_c1_mb_t fm1_c1_mb __attribute__((aligned(64)));
 #define FM1_C1_CHECK(fn, arg, job) ((uint32_t)(uintptr_t)(fn) ^ (arg) ^ (job) * 0x9E3779B1u)
 volatile uint32_t fm1_c1_trace;                 /* breadcrumbs (fm1_cpu1.S, fm1_c1_main, fm1_c1_fault) */
 volatile uint32_t fm1_c1_fault_pc;              /* where core 1 faulted (fm1_c1_fault) */
+volatile uint32_t fm1_c1_fault_emu;             /* (after 2.7.1) its EMU_MSG then: bit 0 misaligned, 1 illegal, 3 its
+                                                 * stack limit (the vector is 1 for every class; fm1_c1_main cleared it) */
 static uint8_t fm1_c1_on;                       /* started and answering: core 0 may hand it work */
 
 void fm1_c1_main(void);
@@ -65,12 +74,12 @@ void __attribute__((section(".c1_text"), noreturn, used)) fm1_c1_main(void)
      * firmware before left there */
     uint32_t lo = (uint32_t)(uintptr_t)_c1_ustack + 256u, hi = (uint32_t)(uintptr_t)_c1_sstack_top - 1u;
     uint32_t done, last_bad = 0xFFFFFFFFu;
-    *(volatile uint32_t *)0x1EEF2D4u = 0xFFFFFFFFu;     /* EMU_MSG: what was left, cleared */
-    *(volatile uint32_t *)0x1EEF2D8u = hi;
-    *(volatile uint32_t *)0x1EEF2DCu = lo;
-    *(volatile uint32_t *)0x1EEF2E0u = hi;
-    *(volatile uint32_t *)0x1EEF2E4u = lo;
-    *(volatile uint32_t *)0x1EEF2D0u = (*(volatile uint32_t *)0x1EEF2D0u & ~((1u << 2) | (0x1Fu << 16))) | (1u << 3);
+    FM1_C1_IO(0x1EEF2D4u) = 0xFFFFFFFFu;                /* EMU_MSG: what was left, cleared */
+    FM1_C1_IO(0x1EEF2D8u) = hi;
+    FM1_C1_IO(0x1EEF2DCu) = lo;
+    FM1_C1_IO(0x1EEF2E0u) = hi;
+    FM1_C1_IO(0x1EEF2E4u) = lo;
+    FM1_C1_IO(0x1EEF2D0u) = (FM1_C1_IO(0x1EEF2D0u) & ~((1u << 2) | (0x1Fu << 16))) | (1u << 3);
     fm1_c1_trace = 0xC1000002;
     done = fm1_c1_mb.done;
     fm1_c1_mb.alive = 1;
@@ -111,6 +120,8 @@ void fm1_c1_fault(uint32_t vec, uint32_t pc);
 void __attribute__((section(".c1_text"), noreturn, used)) fm1_c1_fault(uint32_t vec, uint32_t pc)
 {
     fm1_c1_fault_pc = pc;
+    fm1_c1_fault_emu = FM1_C1_IO(0x1EEF2D4u);   /* (after 2.7.1) why, before the crumb core 0 polls (cpu1.c: 2 for its
+                                                 * stack limit) */
     fm1_c1_trace = FM1_C1_FAULT | (vec & 0xFFu);
     FM1_C1_SYNC();
     for (;;)
@@ -122,14 +133,21 @@ void __attribute__((section(".c1_text"), noreturn, used)) fm1_c1_fault(uint32_t 
  * traps back on. A late job is held in the middle of its writes, and core 0 writes that memory again right after
  * (fx.c: acc[1] cleared, the units rendered again). The flag 2.7 reported in that case is DBG_MSG bit 21, which
  * the SDK names c0_wr_bus_inv, a write of core 0's: possibly that write, not the cut access itself. Not confirmed
- * on a device (the console's "cpu1 late" and cpu1_busflags are there to find out). Meanwhile, on the late path the
- * traps stay off from the hold until that render is done (fm1_cpu1_hold_end, through cpu1.c cpu1_late_end), and
- * the flags that came are kept for the console before they are cleared. fm1_cpu1_hold is both halves at once */
+ * on a device; the console's "cpu1 late" finds out: cpu1_busflags_cut is sampled right after the hold, cpu1_busflags
+ * after core 0's writes (bit 21 already in the first: the cut raised it; only in the second: core 0's writes did).
+ * Meanwhile, on the late path the traps stay off from the hold until that render is done (fm1_cpu1_hold_end, through
+ * cpu1.c cpu1_late_end), and the flags that came are kept for the console before they are cleared. fm1_cpu1_hold is
+ * both halves at once */
 static struct { uint32_t en, locked; uint8_t open; } fm1_c1_traps;
 static uint32_t fm1_c1_busflags;                /* bus-invalid flags seen across the holds (console) */
+static uint32_t fm1_c1_busflags_cut;            /* (after 2.7.1) the same, right after the hold, before core 0 writes
+                                                 * anything core 1 was writing: the cut access's own (console). A bit
+                                                 * here came with the cut itself (2.7.1's model); one only in
+                                                 * fm1_c1_busflags came with core 0's writes after it (the late path) */
 static void fm1_cpu1_hold_begin(void)
 {
     uint32_t bus = FM1__DBG_BUS;
+    volatile uint32_t n;
     __asm__("" : "+r"(bus));
     if (!fm1_c1_traps.open) {
         fm1_c1_traps.locked = !(FM1__DBG_WR_EN & 1u);
@@ -143,6 +161,9 @@ static void fm1_cpu1_hold_begin(void)
     FM1__C1_CON |= 0x2u;                        /* hold: bit 1 set, then bit 3 (enable) cleared */
     FM1__C1_CON &= ~0x8u;
     FM1_C1_SYNC();
+    for (n = 0; n < 256u; n++)                  /* (after 2.7.1) the flag comes some instructions after the hold */
+        ;
+    fm1_c1_busflags_cut |= FM1_DBG_MSG & bus;
     fm1_c1_on = 0;
 }
 static void fm1_cpu1_hold_end(void)
@@ -184,12 +205,13 @@ static int fm1_cpu1_start(void)
     fm1_c1_mb.alive = 0;
     fm1_c1_mb.bad = 0;
     fm1_c1_trace = 0;
+    fm1_c1_fault_emu = 0;
     fm1_c1_mb.done = fm1_c1_mb.job;
     fm1_c1_mb.fn = 0;
     FM1_C1_SYNC();
     for (i = 0; i < 32u; i++)                   /* its interrupt bank: all off (core 0's is at 0x1EEF100) */
-        *(volatile uint32_t *)(0x1EEF300u + 4u * i) = 0;
-    *(volatile uint32_t *)0x01C7FFF8u = (uint32_t)(uintptr_t)&fm1_c1_entry;
+        FM1_C1_IO(0x1EEF300u + 4u * i) = 0;
+    FM1_C1_IO(0x01C7FFF8u) = (uint32_t)(uintptr_t)&fm1_c1_entry;
     saved = FM1_C1_CLK;
     FM1_C1_CLK = saved | 0x8u;
     FM1_C1_SYNC();

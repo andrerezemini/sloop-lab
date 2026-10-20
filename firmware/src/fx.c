@@ -869,10 +869,14 @@ static void mix_units(uint32_t mask, uint32_t n, mixacc_t *mx, int32_t *scratch)
 {
     uint32_t k;
     for (k = 0; k < NPART; k++)
-        if (mask & (1u << k))
+        if (mask & (1u << k)) {
+            CPU1_HOLD_POINT(unit_begin);
             mix_part(&trk[k], n, mx, scratch);
-    if (mask & U_DRUMS)
+        }
+    if (mask & U_DRUMS) {
+        CPU1_HOLD_POINT(unit_begin);
         mix_drums(n, mx);
+    }
 }
 
 /* the load figures: core 1's time in its job and core 0's time waiting for it, in ticks over a half (cpu1.h
@@ -889,19 +893,36 @@ static void cpu1_load_half(uint32_t half_us)
     cpu1_job_ticks = cpu1_wait_ticks = 0;
 }
 
+/* (after 2.7.1) the units core 1 has finished this block, a bit each (mix_units' order): set by core 1 after a unit's
+ * writes, cleared by core 0 before the hand-off, read by core 0 after a hold (the late path, mix_block): a unit it
+ * finished is not rendered again, which would run its SLICER step clock and its LFO 2 a block ahead until the next PLAY */
+static volatile uint32_t cpu1_units_done;
+
 static void cpu1_units_job(uint32_t arg)                /* core 1's job: the units of arg & 0xFF, n = arg >> 8 */
 {
-    uint32_t t0 = cpu1_ticks();
-    mix_units(arg & 0xFFu, arg >> 8, &acc[1], part_buf[1]);
+    uint32_t t0 = cpu1_ticks(), k;
 #if FELUCCA_CDC
-    if (cpu1_late_test && cpu1_on()) {                  /* (after 2.7.1, the console's "cpu1 late") this job late, writing: held
-                                                         * in the middle of its writes, as a stalled core would be */
+    if (cpu1_late_test && cpu1_on()) {                  /* (after 2.7.1, the console's "cpu1 late") this job late, writing what
+                                                         * core 0 writes again after the hold (acc[1], cleared by the late path
+                                                         * whatever the units; part_buf[1], when a part is among them): held in
+                                                         * the middle of its writes, as a stalled core would be, no unit done */
         uint32_t i;
         cpu1_late_test = 0;
-        for (i = 0; i < 8000000u && cpu1_ticks() - t0 < 6000u * CPU1_TICKS_PER_US; i++)
+        for (i = 0; i < 8000000u; i++) {
+            acc[1].l[i & (CTL - 1u)] = (int32_t)i;
             part_buf[1][i & (CTL - 1u)] = (int32_t)i;
+            if (!(i & 255u) && cpu1_ticks() - t0 >= 6000u * CPU1_TICKS_PER_US)
+                break;
+        }
     }
 #endif
+    for (k = 0; k <= NPART; k++)                        /* (after 2.7.1) unit by unit, as mix_units: the same sums */
+        if (arg & (1u << k)) {
+            mix_units(1u << k, arg >> 8, &acc[1], part_buf[1]);
+            __asm__ volatile("" ::: "memory");          /* the unit's writes before its bit */
+            cpu1_units_done |= 1u << k;
+            CPU1_HOLD_POINT(unit_done);
+        }
     cpu1_job_ticks += cpu1_ticks() - t0;
 }
 
@@ -1199,6 +1220,7 @@ static void mix_block(int32_t *out, uint32_t n)
     if (c1) {
         for (i = 0; i < n; i++)
             acc[1].l[i] = acc[1].r[i] = acc[1].sc[i] = acc[1].sd[i] = acc[1].sr[i] = 0;
+        cpu1_units_done = 0;
         if (!cpu1_run(cpu1_units_job, c1 | n << 8))
             c1 = 0;
     }
@@ -1209,9 +1231,15 @@ static void mix_block(int32_t *out, uint32_t n)
         cpu1_wait_ticks += cpu1_ticks() - w0;
         if (late) {                                     /* core 1 did not finish in time: held from now on (cpu1.h);
                                                          * its units here, once (what it half did is this block's glitch) */
-            for (i = 0; i < n; i++)
-                acc[1].l[i] = acc[1].r[i] = acc[1].sc[i] = acc[1].sd[i] = acc[1].sr[i] = 0;
-            cpu1_units_job(c1 | n << 8);
+            uint32_t todo = c1 & ~cpu1_units_done;      /* (after 2.7.1) the units it did not finish, those only: one it
+                                                         * finished would advance twice (cpu1_units_done), so its sound is
+                                                         * what is lost of this block; none = acc[1] is whole (a job done,
+                                                         * then held: a wrong read seen at the wait), no glitch at all */
+            if (todo) {
+                for (i = 0; i < n; i++)
+                    acc[1].l[i] = acc[1].r[i] = acc[1].sc[i] = acc[1].sd[i] = acc[1].sr[i] = 0;
+                cpu1_units_job(todo | n << 8);
+            }
             cpu1_late_end();                            /* (after 2.7.1) the bus traps back on, after these writes */
         }
         for (i = 0; i < n; i++) {

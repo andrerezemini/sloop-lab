@@ -276,7 +276,8 @@ def check(img, syms, dis, rt):
         else:
             notes.append(f"core 1's stack: last in .lowram at {ust:#x}, the red zone below it, "
                          f"{ust - sym('_c1_end')} B above its loop")
-    if re.search(r"\scpu1_bar$", syms, re.M) and str(0x43314241) not in dis:   # (after 2.7.1) cpu1.c
+    if (os.environ.get("FELUCCA_CPU1") != "0" and re.search(r"\scpu1_bar$", syms, re.M)
+            and str(0x43314241) not in dis):      # (after 2.7.1) cpu1.c (FELUCCA_CPU1=0: nothing sets the bar)
         errors.append("cpu1_bar lost its word magic (folded to a byte flag: garbage at power-on would bar core 1)")
     fc = re.search(r"^fm1_fault_c:\n((?:(?!^\S+:$).*\n)+)", dis, re.M)
     if fc:                                        # a fault on core 1 must not run core 0's report (hal/fm1_irq.h)

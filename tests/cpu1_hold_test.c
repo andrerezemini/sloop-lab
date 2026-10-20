@@ -16,8 +16,17 @@
  *   grain_spawn  a grain held half set (RAND 127: reverse grains too): no grain of a voice reads outside its window
  *   symp_coef  PHYS SYMP's coefficients rebuilt: the reference's
  *   slicer_rec the drums' SLICER STUT held as its recording fills: nothing written past it
+ *   unit_done, unit_begin  core 1 held after a unit it finished (a wrong read seen at the wait), or as one begins:
+ *              part 3 and the drums through the SLICER, part 3's LFO 2 free running. The late path renders only the
+ *              units it did not finish (fx.c cpu1_units_done), so the SLICER step clocks and the LFO phases end as the
+ *              reference's (rendered twice they ran a block ahead until the next PLAY; a unit marked done before it
+ *              rendered would be skipped), and a hold after its last unit leaves the output itself the reference's
+ *   lofi_end, env_end  a voice of part 3 held as it ends (LOFI's STEP amplitude, the ADSR's release): it is never left
+ *              active at stage 0 (sounding at full through STOP on LOFI); after the notes stop, every voice ends
  * The out-of-bounds checks bite under ASan (tests/cpu1_modes.sh builds this test with it too). Voices' own phases
- * after a hold are not compared: the late path renders the units again (one block of glitch, as on the device). */
+ * after a hold in the middle of a unit are not compared: the late path renders that unit again from where it was
+ * (one block of glitch, as on the device). */
+#include <stddef.h>
 #define main hostsim_main
 #include "hostsim.c"
 #undef main
@@ -25,11 +34,11 @@
 #define BLOCKS 900u
 #define EVENT 300u
 #define NHOLDS 4u                                         /* the first passes of a site tried, one run each */
-enum { S_FADE, S_FM6, S_GRAIN, S_SPAWN, S_SYMP, S_SLICER, NSCENE };
-static const char *const SCENE_NAME[NSCENE] = {"fade", "fm6", "grain", "spawn", "symp", "slicer"};
+enum { S_FADE, S_FM6, S_GRAIN, S_SPAWN, S_SYMP, S_SLICER, S_LATE, S_LOFI, S_ENV, NSCENE };
+static const char *const SCENE_NAME[NSCENE] = {"fade", "fm6", "grain", "spawn", "symp", "slicer", "late", "lofi", "env"};
 static const char *const SCENE_SITES[NSCENE][2] = {
     {"fade_preset", "fade_engine"}, {"fm6_cache", 0}, {"grain_index", "grain_zones"}, {"grain_spawn", 0},
-    {"symp_coef", 0}, {"slicer_rec", 0}};
+    {"symp_coef", 0}, {"slicer_rec", 0}, {"unit_done", "unit_begin"}, {"lofi_end", 0}, {"env_end", 0}};
 
 static void steps(track_t *t, uint32_t base, uint32_t every)   /* a 3-note chord on every `every`-th step */
 {
@@ -74,6 +83,32 @@ static void scene_setup(uint32_t s)
             put_step(t, i, i ? 0u : 1u, n, i ? ST_REST : ST_NOTE, 0u);
         break;
     }
+    case S_LOFI:                                         /* voices ending: LOFI's STEP amplitude ends them (its 1 %) */
+    case S_ENV:                                          /* ANALOG: the ADSR's release ends them (env_tick) */
+        host_preset(t, s == S_LOFI ? 3u : 0u, 0);
+        if (s == S_LOFI)
+            t->p[P_E0] = 4;                              /* CHIP = STEP (eng_lofi.c CHIP_STEP) */
+        t->p[P_REL] = 12;
+        steps(t, 55, 1);
+        break;
+    case S_LATE: {                                       /* part 3 and the drums through the SLICER (GATE), LFO 2 FREE */
+        uint32_t i;
+        uint8_t n[1] = {36};
+        host_preset(t, 0, 2);                            /* ANALOG */
+        steps(t, 55, 2);
+        t->p[P_SLCR] = SL_GATE;
+        t->p[P_SLPAT] = 3;
+        t->p[P_SLDEPTH] = 100;
+        t->p[P_LTRIG] = 1;                               /* FREE: the phase only ever runs on */
+        t->p[P_LRATE] = 70;
+        t->p[P_LD_PIT] = 20;
+        for (i = 0; i < 16u; i++)
+            put_step(TDRUM, i, i % 2u ? 0u : 1u, n, i % 2u ? ST_REST : ST_NOTE, 0u);
+        TDRUM->p[P_SLCR] = SL_GATE;
+        TDRUM->p[P_SLPAT] = 5;
+        TDRUM->p[P_SLDEPTH] = 100;
+        break;
+    }
     default: {                                           /* the drums on core 1, STUT recording long live steps */
         uint32_t i;
         uint8_t n[1] = {36};
@@ -111,6 +146,11 @@ static void scene_event(uint32_t s, uint32_t b)
         t->p[P_E0 + 3] = (int16_t)(t->p[P_E0 + 3] + 9);  /* FM6 macros: the cache is rebuilt */
         t->p[P_E0 + 1] = (int16_t)(t->p[P_E0 + 1] + 2);
     }
+    if ((s == S_LOFI || s == S_ENV) && b == 2u * EVENT) {
+        uint8_t n[1] = {0};
+        for (k = 0; k < 16u; k++)                        /* the notes stop: every voice must end */
+            put_step(t, k, 0u, n, ST_REST, 0u);
+    }
     if ((s == S_GRAIN || s == S_SPAWN) && b == EVENT)
         t->p[P_E0] = (int16_t)((t->p[P_E0] + 1) % SMP_NALL);   /* SRC: the zone index is rebuilt */
     if (s == S_SYMP && b == EVENT)
@@ -145,6 +185,15 @@ static uint64_t state_sig(uint32_t s)                    /* what a hold could le
         h = fnv(h, P->zbase, sizeof P->zbase);
         h = fnv(h, P->zcnt, sizeof P->zcnt);
     }
+    if (s == S_LOFI || s == S_ENV)                       /* the notes stopped long before: no voice left */
+        for (k = 0; k < NVOICE; k++)
+            h = fnv(h, &trk[NPART - 1u].v[k].active, sizeof trk[NPART - 1u].v[k].active);
+    if (s == S_LATE)                                     /* the free-running clocks a second render would advance */
+        for (k = 0; k < NTRK; k++) {
+            h = fnv(h, &sl[k], offsetof(sl_t, rec_on) + 1u);
+            if (k < NPART)
+                h = fnv(h, &trk[k].lfo_ph, sizeof trk[k].lfo_ph);
+        }
     if (s == S_SYMP) {
         track_t *t = &trk[NPART - 1u];
         uint8_t *a = (uint8_t *)eng_arena_of(t, ENGI_PHYS);
@@ -164,6 +213,12 @@ static int consistent(uint32_t s)                        /* checks of the held r
     track_t *t = &trk[NPART - 1u];
     const gr_part_t *P;
     uint32_t i;
+    if (s == S_LOFI || s == S_ENV) {                     /* no voice active at stage 0 (a voice no end reaches) */
+        for (i = 0; i < NVOICE; i++)
+            if (t->v[i].active && !t->v[i].stage)
+                return 0;
+        return 1;
+    }
     if (s != S_GRAIN && s != S_SPAWN)
         return 1;
     P = (const gr_part_t *)eng_arena_of(t, ENGI_GRAIN);
@@ -179,11 +234,11 @@ static int consistent(uint32_t s)                        /* checks of the held r
     return 1;
 }
 
-typedef struct { uint64_t sig; uint32_t holds, passes, fades; int32_t ok; } res_t;
+typedef struct { uint64_t sig, out; uint32_t holds, passes, fades; int32_t ok; } res_t;
 
 static res_t render(uint32_t s, const char *site, uint32_t nth)
 {
-    res_t r = {0, 0, 0, 0, 1};
+    res_t r = {0, 0xcbf29ce484222325ull, 0, 0, 0, 1};
     uint32_t b, i;
     cpu1_host_mode();
     cpu1_units = -1;                                     /* the firmware's split: part 3 and the drums go */
@@ -198,6 +253,7 @@ static res_t render(uint32_t s, const char *site, uint32_t nth)
         for (i = 0; i < 2u * CTL; i++)
             if (o[i] > (1 << 28) || o[i] < -(1 << 28))
                 r.ok = 0;
+        r.out = fnv(r.out, o, sizeof o);
         if (!consistent(s))
             r.ok = 0;
     }
@@ -238,7 +294,7 @@ int main(void)
     setenv("CORES", "1", 1);                             /* the hold is the inline double's (cpu1_host.c) */
     for (s = 0; s < NSCENE; s++) {
         res_t ref;
-        uint32_t k, bad = 0, held = 0;
+        uint32_t k, bad = 0, held = 0, whole = 0;
         if (child(s, 0, 0, &ref) || !ref.ok) {
             printf("hold: %-6s the reference render crashed, ran away or is inconsistent\n", SCENE_NAME[s]);
             fails++;
@@ -281,11 +337,16 @@ int main(void)
                     printf("hold: %-6s held at %s (pass %u): the state differs from the run without a hold\n", SCENE_NAME[s], site, nth);
                     bad++;
                 }
+                whole += r.holds && r.out == ref.out;
             }
+        }
+        if (s == S_LATE && !whole) {                     /* a job finished, then held: acc[1] whole, no glitch at all */
+            printf("hold: late   no hold after a job's last unit gave the reference's output: a finished job is rendered again\n");
+            bad++;
         }
         printf("hold: %-6s %3u holds, %s\n", SCENE_NAME[s], held, bad ? "FAIL" : "same state");
         fails += bad;
     }
-    printf("a hold in the middle of a job (fades, FM6, GRAIN, SYMP, SLICER): %s\n", fails ? "FAIL" : "PASS");
+    printf("a hold in the middle of a job (fades, FM6, GRAIN, SYMP, SLICER, a finished unit, voice ends): %s\n", fails ? "FAIL" : "PASS");
     return fails ? 1 : 0;
 }

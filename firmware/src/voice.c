@@ -687,6 +687,7 @@ static int32_t env_tick(track_t *t, voice_t *v)
             v->active = 0;                              /* (after 2.7.1) ended first: held in between (a late job on core 1),
                                                          * a voice is never left at stage 0 still active, sounding forever */
             __asm__ volatile("" ::: "memory");
+            CPU1_HOLD_POINT(env_end);
             v->env = 0;
             v->stage = 0;
         }
@@ -703,8 +704,11 @@ static int32_t env_tick(track_t *t, voice_t *v)
             v->kill = 0;
         }
         break;
-    default:
+    default:                                            /* (after 2.7.1) a voice active at stage 0, which only a hold in the
+                                                         * middle of an end leaves (no start or end writes one): ended here,
+                                                         * never rendered on */
         v->env = 0;
+        v->active = 0;
         break;
     }
     return v->env >> 9;

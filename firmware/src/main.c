@@ -134,9 +134,10 @@ UI_SMALL static void fm1_fault(const fm1_crash_t *c)
     fm1_cpu1_halt();                                    /* (after 2.7.1) core 1 held at once (registers only; this runs on
                                                          * core 0: fm1_fault_c), not only by fm1_reboot after the wait */
 #if FELUCCA_CPU1
-    if (cpu1_state == CPU1_OK && (fm1_c1_mb.done != fm1_c1_mb.job || (c->dbg & 0x003F0430u)))
-        cpu1_bar = CPU1_BAR;                            /* a crash while core 1 had a job, or a bus / its PC-limit flag:
-                                                         * one core after this reset, until power-off (cpu1.c) */
+    if (cpu1_state == CPU1_OK)
+        cpu1_bar = CPU1_BAR;                            /* a crash while core 1 ran, in a job or between jobs (as X0X 1.0.9:
+                                                         * fm1-x0x#21's misreads come with both cores running, core 0's
+                                                         * too): one core after this reset, until power-off (cpu1.c) */
 #endif
     lcd_fill(0, 0, 240, 240, RGB(160, 0, 0));
     draw_text_box(0, 8, 240, &FONT_S, "FELUCCA CRASH", C_WHITE, 1);

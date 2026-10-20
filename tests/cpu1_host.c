@@ -106,6 +106,11 @@ static void cpu1_late_end(void) {}                       /* (the device's traps:
 static uint32_t cpu1_ticks(void) { return 0; }
 static uint32_t cpu1_host_jobs(void) { return c1h.jobs; }
 static uint32_t cpu1_host_timeouts(void) { return c1h.timeouts; }
+#ifndef C1H_RNG_STATE
+#define C1H_RNG_STATE 0u                                 /* (hostsim.c: libc.c's rng_state) */
+#endif
+static uint32_t c1h_rng_jobs;                            /* (CORES=1) jobs during which core 1 drew from rng() */
+static uint32_t cpu1_host_rng_jobs(void) { return c1h_rng_jobs; }
 static int cpu1_host_mode(void) { cpu1_host_init(); return c1h.mode; }
 
 static int cpu1_run(cpu1_job_t fn, uint32_t arg)
@@ -152,10 +157,12 @@ static int cpu1_wait(void)
         pthread_mutex_unlock(&c1h.mu);
     } else {
         uint32_t held = c1h_held;
+        uint32_t rs = C1H_RNG_STATE;                         /* rng() is core 0's alone (fx.c units_split) */
         c1h_in_job = 1;
         if (!setjmp(c1h_jb))
             c1h.fn(c1h.arg);                             /* inline, deferred to here: as late as the device's */
         c1h_in_job = 0;
+        c1h_rng_jobs += C1H_RNG_STATE != rs;
         if (c1h_held != held) {                          /* stopped at a hold point: the device's late job */
             c1h.timeouts++;
             c1h.on = 0;

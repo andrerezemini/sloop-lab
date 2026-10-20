@@ -5,7 +5,8 @@
  * a second), usb_poll (TIMER5) is called by hand.
  *   boot        without a host: USB stays off; with one: up at once
  *   no host     one try a second, and no main-loop pass waits in fm1_delay_ms (2.7.1 fix: the 25 ms wait of every
- *               try held the UI once a second on battery)
+ *               try held the UI once a second on battery); between tries the pads are detached (2.7.1 fix: the PHY
+ *               and the D+ pull-up stayed on, on battery, from one try to the next)
  *   plugged in  a host plugged in later is up within ~1 s; every attach comes >= 20 ms after the pads were
  *               detached (hal/fm1_usb.h)
  *   SIE lost    a session whose SIE stops answering (sie_rd sets usb.up = 0) is started again
@@ -119,7 +120,7 @@ static void check(const char *what, int ok)
 
 /* main-loop passes for ms milliseconds: usb_retry, then the rest of a 16 ms frame. The longest wait of a pass in
  * fm1_delay_ms goes to *wait_max; stop early once usb.up is 1 if until_up */
-static uint32_t wait_max;
+static uint32_t wait_max, passes_attached;    /* passes that left the pads attached */
 static uint32_t run_loop(uint32_t ms, int until_up)
 {
     uint32_t t0 = now_us;
@@ -128,6 +129,7 @@ static uint32_t run_loop(uint32_t ms, int until_up)
         usb_retry(now_us / 1000u);
         if (waited - w > wait_max)
             wait_max = waited - w;
+        passes_attached += attached;
         if (until_up && usb.up)
             break;
         now_us += 16000u;
@@ -146,15 +148,18 @@ int main(void)
 
     host = 0;                           /* on battery: no cable */
     usb_start();
-    check("boot without a host: USB off (the SIE does not answer)", !usb.up && dead > 0 && !early);
+    check("boot without a host: USB off (the SIE does not answer), the pads detached", !usb.up && dead > 0 && !early &&
+                                                                                     !attached);
 
     now_us += 930000u;                  /* main.c: 930 ms of logo, then the main loop */
-    tries = usb.retries, wait_max = 0;
+    tries = usb.retries, wait_max = 0, passes_attached = 0;
     run_loop(10000u, 0);
     check("no host: one try a second (10 s: 9..11 tries)", usb.retries - tries >= 9u && usb.retries - tries <= 11u);
     check("no host: still off", !usb.up);
     printf("  longest wait of a main-loop pass: %u ms\n", wait_max);
     check("no host: no main-loop pass waits in fm1_delay_ms (2.7.1)", wait_max == 0);
+    printf("  main-loop passes (of %u) that left the pads attached: %u\n", 10000u / 16u, passes_attached);
+    check("no host: the PHY and the D+ pull-up off between tries (2.7.1)", passes_attached == 0);
     check("no host: every attach >= 20 ms after the pads were detached", !early);
 
     att = attaches;                     /* the worst case: plugged in just after a try */
@@ -163,7 +168,7 @@ int main(void)
     host = 1;
     took = run_loop(3000u, 1);
     printf("  plugged in: up after %u ms\n", took);
-    check("a host plugged in later: USB up within 1.1 s", usb.up && took <= 1100u);
+    check("a host plugged in later: USB up within 1.1 s, the pads attached", usb.up && attached && took <= 1100u);
     check("plugged in: attached >= 20 ms after the pads were detached, no wait in a pass", !early && wait_max == 0);
 
     usb.config = 1;                     /* a session ... */

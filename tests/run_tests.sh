@@ -131,7 +131,7 @@ $CC -w -DT_CDC=0 -DFELUCCA_UAC_48K=0 -DHALF_FRAMES=$HALF -o "$OUT/uac_test_no48"
 run "USB RATE 44.1: the descriptors of a build without 48 kHz (SLOOP 2.4), byte for byte" \
     sh -c "[ \"\$(UAC_DUMP=1 '$OUT/uac_test_441' | tail -n 2)\" = \"\$(UAC_DUMP=1 '$OUT/uac_test_no48' | tail -n 2)\" ] && echo same"
 $CC -o "$OUT/usb_retry_test" tests/usb_retry_test.c
-run "USB start and retry: no host (no wait in the main loop), plug-in, SIE lost, suspended bus" "$OUT/usb_retry_test"
+run "USB start and retry: no host (no wait in the main loop, the pads off between tries), plug-in, SIE lost, suspended bus" "$OUT/usb_retry_test"
 uac_in_app() { ${CC%% *} -E -Ibuild/gen -Ifirmware/hal -Ifirmware/src firmware/src/felucca.c 2>/dev/null | grep -q uac_service; }
 run "USB audio input: built into the firmware (FELUCCA_UAC set before usb.c)" uac_in_app
 

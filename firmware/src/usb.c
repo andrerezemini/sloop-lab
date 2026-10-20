@@ -1326,6 +1326,8 @@ static void usb_attach_sie(void)                        /* the pads detached >= 
     sie_wr(S_INTRRX2E, 0);
     fm1_usb_ep_enable(0x1Fu);
     usb.up = usb.timeouts < 3u;                         /* a dead SIE leaves USB off */
+    if (!usb.up)                                        /* ... and the PHY and the D+ pull-up off until the next */
+        fm1_usb_off();                                  /* try (2.7.1 fix: they stayed on, on battery) */
 }
 
 static void usb_start(void)                             /* boot, the rescue, the update loader: waits 25 ms */

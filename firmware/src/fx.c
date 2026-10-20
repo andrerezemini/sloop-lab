@@ -893,6 +893,15 @@ static void cpu1_units_job(uint32_t arg)                /* core 1's job: the uni
 {
     uint32_t t0 = cpu1_ticks();
     mix_units(arg & 0xFFu, arg >> 8, &acc[1], part_buf[1]);
+#if FELUCCA_CDC
+    if (cpu1_late_test && cpu1_on()) {                  /* (after 2.7.1, the console's "cpu1 late") this job late, writing: held
+                                                         * in the middle of its writes, as a stalled core would be */
+        uint32_t i;
+        cpu1_late_test = 0;
+        for (i = 0; i < 8000000u && cpu1_ticks() - t0 < 6000u * CPU1_TICKS_PER_US; i++)
+            part_buf[1][i & (CTL - 1u)] = (int32_t)i;
+    }
+#endif
     cpu1_job_ticks += cpu1_ticks() - t0;
 }
 
@@ -1203,6 +1212,7 @@ static void mix_block(int32_t *out, uint32_t n)
             for (i = 0; i < n; i++)
                 acc[1].l[i] = acc[1].r[i] = acc[1].sc[i] = acc[1].sd[i] = acc[1].sr[i] = 0;
             cpu1_units_job(c1 | n << 8);
+            cpu1_late_end();                            /* (after 2.7.1) the bus traps back on, after these writes */
         }
         for (i = 0; i < n; i++) {
             acc[0].l[i] += acc[1].l[i];

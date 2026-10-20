@@ -25,6 +25,7 @@ static void fm1_irq_on(void) {}
 #include "../src/voice.c"
 #include "../src/slicer.c"
 static int cpu1_run(cpu1_job_t fn, uint32_t arg) { (void)fn; (void)arg; return 0; }
+static void cpu1_late_end(void) {}
 static int cpu1_wait(void) { return 0; }
 static int cpu1_on(void) { return 0; }
 static uint32_t cpu1_ticks(void) { return 0; }

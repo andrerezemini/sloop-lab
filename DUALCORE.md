@@ -103,7 +103,8 @@ its entry; 0xC1000002: reached its loop; 0xC1DEADvv: it faulted on vector vv and
 core 1 did not finish in 4 ms, or that it read wrong: after the first, it is held and SLOOP runs on one core),
 `cpu1_why` (why it was held: 1 late, 2 its stack, 3 a fault, 4 a wrong read; why it was not started: 5 barred after
 a hold or a crash beside it, until power-off, 6 the boot before failed), `cpu1_bad` (jobs it refused: a wrong read),
-`cpu1_units` (`cpu1 units MASK|auto` sets it live), `cpu1_busy_pct`
+`cpu1_busflags` (bus-invalid flags a hold raised),
+`cpu1_units` (`cpu1 units MASK|auto` sets it live; `cpu1 late` makes the next job late on purpose), `cpu1_busy_pct`
 and `cpu1_wait_pct` (core 1's share of a half spent rendering, core 0's share spent waiting for it) and
 `cpu1_stack_free` (bytes of core 1's 2,816 B stack the render never reached: it must stay above 256 on the
 heaviest patterns; below that core 1 is held, its stack limit and the per-half check). With 2 CORES the last synth part and the drums render on core 1; the audio is bit for bit
@@ -138,6 +139,9 @@ What a stalled, misreading or faulting core 1 does, and what the render does abo
   and SLICER fixes undone one at a time, and with the two GRAIN grain fixes undone together (each alone stops the
   out-of-bounds read the 2.7.1 order allowed). Accepted residuals, a few instructions wide and for one note: a
   sample's ADPCM decoder held between its predictor and its position, and a MODAL / MEMB strike.
+- **The traps across the late path** (not confirmed on a device): the bus-invalid traps stay off from the hold until
+  core 0 has written core 1's memory again (`cpu1_late_end`), in case the flag 2.7 reported (DBG_MSG bit 21,
+  `c0_wr_bus_inv`) came from that write; `cpu1_busflags` and `cpu1 late` are there to find out.
 - **One core after a failure**: core 1 held for good, or a crash while it had a job (or a bus or core-1 PC-limit
   flag): the next warm boots start one core until the FM-1 is switched off (`.noinit`, cleared at a power-on);
   a boot that died in its first 30 s: the next boot only (as Felucca 1.6.1). The player sees "2ND CORE STOPPED"

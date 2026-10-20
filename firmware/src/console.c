@@ -185,6 +185,7 @@ static void con_status(void)
                                                          * started: 5 barred after a hold or a crash, 6 a failed boot */
     con_kx("cpu1_fault_pc", fm1_c1_fault_pc);            /* where it faulted (cpu1_trace 0xC1DEADvv, vv the vector) */
     con_kv("cpu1_bad", (int32_t)fm1_c1_mb.bad);          /* jobs it would not run: a wrong read (fm1_cpu1.h) */
+    con_kx("cpu1_busflags", fm1_c1_busflags);            /* bus-invalid flags a hold raised (DBG_MSG bits 4, 5, 16..21) */
     con_kv("cpu1_units", cpu1_units);                    /* the render units it gets: -1 its share, else a mask (fx.c) */
     con_kv("cpu1_busy_pct", (int32_t)(cpu1_busy_q8 * 100u / 256u));   /* its time in the render, of a half (fx.c) */
     con_kv("cpu1_wait_pct", (int32_t)(cpu1_wait_q8 * 100u / 256u));   /* core 0's time waiting for it */
@@ -265,7 +266,7 @@ static void con_params(void)
 static void con_exec(const char *p)
 {
     if (con_word(&p, "help") || con_word(&p, "?"))
-        con_puts("status  dbg  crash  params  memr ADDR [LEN]  flr OFF [LEN]  cpu1 units MASK|auto  uboot yes\r\n");
+        con_puts("status  dbg  crash  params  memr ADDR [LEN]  flr OFF [LEN]  cpu1 units MASK|auto  cpu1 late  uboot yes\r\n");
     else if (con_word(&p, "status"))
         con_status();
     else if (con_word(&p, "dbg"))
@@ -279,6 +280,13 @@ static void con_exec(const char *p)
 #if FELUCCA_CPU1
     else if (con_word(&p, "cpu1")) {                     /* cpu1 units MASK | auto: the render units core 1 gets (fx.c
                                                          * units_split: bit k = synth part k, bit 3 = the drums), live */
+        if (con_word(&p, "late")) {                      /* (after 2.7.1) the next job late on purpose: the hold of a busy
+                                                         * core 1 and the render's fallback, tried on the FM-1 (then
+                                                         * one core until power-off, as after a real one) */
+            cpu1_late_test = 1;
+            con_puts("cpu1: the next job runs late\r\n");
+            return;
+        }
         if (con_word(&p, "units")) {
             int ok;
             uint32_t v;

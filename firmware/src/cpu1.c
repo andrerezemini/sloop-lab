@@ -44,6 +44,8 @@ static int cpu1_wait(void)
     return -1;
 }
 
+static void cpu1_late_end(void) { fm1_cpu1_hold_end(); }
+
 /* after each half (audio.c), core 1 idle: a fault it parked on outside a job, or a job that went within 256 bytes of
  * its stack's end (hal/fm1_cpu1.h fm1_cpu1_stack_ok: the red zone below the stack, app.ld), holds it for good, as a
  * late job does: one core from here on, before an overflow reaches the buffers below the stack */
@@ -145,5 +147,6 @@ static const char *cpu1_label(void) { return "1 CORE"; }
 static int cpu1_on(void) { return 0; }
 static int cpu1_run(cpu1_job_t fn, uint32_t arg) { (void)fn; (void)arg; return 0; }
 static int cpu1_wait(void) { return 0; }
+static void cpu1_late_end(void) {}
 static uint32_t cpu1_ticks(void) { return 0; }
 #endif

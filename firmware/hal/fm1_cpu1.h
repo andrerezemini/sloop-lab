@@ -3,8 +3,8 @@
  * after Melodee's dual-core audio by Kerem Kilic (github.com/keremimo/melodee). Brought into SLOOP
  * by the sloop-lab dualcore branch (github.com/andrerezemini/sloop-lab). Modified after 2.7.1 (sloop-lab
  * fix-core): the mailbox of X0X 1.0.5+ / Felucca 1.6.1 (Leo Kuroshita, Hügelton Instruments) with Jangada's
- * layout (zednaked, github.com/zednaked/jangada), Melodee's EMU guards for core 1, the fault park and the
- * stack check. */
+ * layout (zednaked, github.com/zednaked/jangada), Melodee's EMU guards for core 1, the fault park, the
+ * stack check and the hold in two halves. */
 /* The AC79's second core (docs/plans/2026-10-04-dual-core-and-clock.md), with what Melodee's
  * dual-core audio (github.com/keremimo/melodee, GPL-3.0) found on the device.
  *
@@ -117,11 +117,56 @@ void __attribute__((section(".c1_text"), noreturn, used)) fm1_c1_fault(uint32_t 
         ;
 }
 
-static void fm1_cpu1_hold(void)
+/* (after 2.7.1) the hold in two halves, for a job core 1 did not finish. fm1_sys.h's fm1_cpu1_halt (after Felucca
+ * 1.6.1) turns the bus-invalid traps off, holds, waits for the flag the cut access raises, clears it and turns the
+ * traps back on. A late job is held in the middle of its writes, and core 0 writes that memory again right after
+ * (fx.c: acc[1] cleared, the units rendered again). The flag 2.7 reported in that case is DBG_MSG bit 21, which
+ * the SDK names c0_wr_bus_inv, a write of core 0's: possibly that write, not the cut access itself. Not confirmed
+ * on a device (the console's "cpu1 late" and cpu1_busflags are there to find out). Meanwhile, on the late path the
+ * traps stay off from the hold until that render is done (fm1_cpu1_hold_end, through cpu1.c cpu1_late_end), and
+ * the flags that came are kept for the console before they are cleared. fm1_cpu1_hold is both halves at once */
+static struct { uint32_t en, locked; uint8_t open; } fm1_c1_traps;
+static uint32_t fm1_c1_busflags;                /* bus-invalid flags seen across the holds (console) */
+static void fm1_cpu1_hold_begin(void)
 {
-    fm1_cpu1_halt();                            /* (2.7.1, fm1_sys.h) the bus-invalid traps off around the hold */
+    uint32_t bus = FM1__DBG_BUS;
+    __asm__("" : "+r"(bus));
+    if (!fm1_c1_traps.open) {
+        fm1_c1_traps.locked = !(FM1__DBG_WR_EN & 1u);
+        if (fm1_c1_traps.locked)
+            FM1__DBG_WR_EN = 0xE7u;             /* unlock (as fm1_guard.h) */
+        fm1_c1_traps.en = FM1__DBG_EN;
+        FM1__DBG_EN = fm1_c1_traps.en & ~bus;
+        fm1_c1_traps.open = 1;
+        FM1_C1_SYNC();
+    }
+    FM1__C1_CON |= 0x2u;                        /* hold: bit 1 set, then bit 3 (enable) cleared */
+    FM1__C1_CON &= ~0x8u;
     FM1_C1_SYNC();
     fm1_c1_on = 0;
+}
+static void fm1_cpu1_hold_end(void)
+{
+    uint32_t bus = FM1__DBG_BUS;
+    volatile uint32_t n;
+    __asm__("" : "+r"(bus));
+    if (!fm1_c1_traps.open)
+        return;
+    for (n = 0; n < 256u; n++)                  /* the flag comes some instructions after the hold */
+        ;
+    fm1_c1_busflags |= FM1_DBG_MSG & bus;       /* (what came, for the console) */
+    FM1__DBG_MSG_CLR = bus;
+    FM1_C1_SYNC();
+    FM1__DBG_EN = fm1_c1_traps.en;
+    if (fm1_c1_traps.locked && (FM1__DBG_WR_EN & 1u))
+        FM1__DBG_WR_EN = 0xE7u;                 /* lock again */
+    fm1_c1_traps.open = 0;
+    FM1_C1_SYNC();
+}
+static void fm1_cpu1_hold(void)
+{
+    fm1_cpu1_hold_begin();
+    fm1_cpu1_hold_end();
 }
 
 /* 0 = core 1 runs and answered; else it is held again. The top of RAM must be writable
@@ -180,14 +225,14 @@ static inline int fm1_cpu1_run(void (*fn)(uint32_t), uint32_t arg)
 }
 
 /* 0 = done; -1 = it read a wrong job, faulted or did not finish in time: core 1 is held from now on (the caller
- * does the work) */
+ * does the work, then fm1_cpu1_hold_end) */
 static inline int fm1_cpu1_wait(void)
 {
     uint32_t t0 = FM1_C1_T4;
     for (;;) {
         FM1_C1_SYNC();
         if (fm1_c1_mb.bad || (fm1_c1_trace & 0xFFFFFF00u) == FM1_C1_FAULT) {   /* a wrong job read, a fault: at once */
-            fm1_cpu1_hold();
+            fm1_cpu1_hold_begin();              /* (the traps stay off: the caller renders its units, then ends it) */
             return -1;
         }
         if (fm1_c1_mb.done == fm1_c1_mb.job) {
@@ -196,7 +241,7 @@ static inline int fm1_cpu1_wait(void)
         }
         if (FM1_C1_T4 - t0 > 24000u * 4u) {     /* 4 ms (as Jangada and Felucca 1.6.1): far past any block's work
                                                  * (0.73 ms), less than a half (5.8 ms): one late half at most */
-            fm1_cpu1_hold();
+            fm1_cpu1_hold_begin();
             return -1;
         }
     }

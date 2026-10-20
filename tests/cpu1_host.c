@@ -102,6 +102,7 @@ static void cpu1_host_init(void)
 }
 
 static int cpu1_on(void) { cpu1_host_init(); return c1h.on; }
+static void cpu1_late_end(void) {}                       /* (the device's traps: nothing here) */
 static uint32_t cpu1_ticks(void) { return 0; }
 static uint32_t cpu1_host_jobs(void) { return c1h.jobs; }
 static uint32_t cpu1_host_timeouts(void) { return c1h.timeouts; }
